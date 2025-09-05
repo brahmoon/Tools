@@ -8,8 +8,8 @@
   Redirecting...
   <script>
     // パスからユーザー名を取得
-    const path = window.location.pathname; // 例: /@USERNAME
-    const username = path.replace(/https:\/\/brahmoon\.github\.io\/Tools\/\?/, ""); // @を除去
+    const path = window.location.search;
+    const username = path.replace(/^\?/, ""); // ?を除去
 
     if(username) {
       // YouTubeチャンネルにリダイレクト
