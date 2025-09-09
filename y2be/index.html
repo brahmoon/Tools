@@ -229,7 +229,7 @@
             statusElement.textContent = message;
             statusElement.className = `status ${type}`;
         }
-
+    
         function parseQuery() {
             const urlParams = new URLSearchParams(window.location.search);
             const codeParam = urlParams.get('code');
@@ -244,24 +244,27 @@
             }
             
             const type = parts[0].trim();
-            const videoId = parts[1].trim();
+            const idPart = parts[1].trim();
+            
+            let result = { type: type };
+            
+            if (type === 'watch' || type === 'live') {
+                result.videoId = idPart;
+            } else if (type === 'channel') {
+                result.channelId = idPart;
+            }
             
             // 時間パラメータの解析
-            let timeParam = null;
-            if (parts.length > 2) {
+            if (parts.length > 2 && (type === 'watch' || type === 'live')) {
                 const timePart = parts[2].trim();
                 if (timePart.startsWith('t=')) {
-                    timeParam = timePart.substring(2);
+                    result.time = timePart.substring(2);
                 }
             }
             
-            return {
-                type: type,
-                videoId: videoId,
-                time: timeParam
-            };
+            return result;
         }
-
+    
         function buildRedirectUrl(parsedQuery) {
             const { type, videoId, channelId, time } = parsedQuery;
             let baseUrl;
@@ -271,7 +274,7 @@
             } else if (type === 'live') {
                 baseUrl = `https://www.youtube.com/live/${videoId}`;
             } else if (type === 'channel') {
-                baseUrl = `https://www.youtube.com/${channelId}`;
+                baseUrl = `https://www.youtube.com/@${channelId}`;
             } else {
                 return null;
             }
@@ -283,7 +286,7 @@
             
             return baseUrl;
         }
-
+    
         function handleRedirect() {
             const parsedQuery = parseQuery();
             
@@ -304,7 +307,7 @@
                 window.location.href = redirectUrl;
             }, 1500);
         }
-
+    
         function handleSampleClick(element) {
             const href = element.getAttribute('href');
             showStatus(`🔄 サンプルリンクを処理中...`, 'redirecting');
@@ -315,7 +318,7 @@
             
             return false; // デフォルトのクリック動作を防ぐ
         }
-
+    
         // ページ読み込み時にリダイレクト処理を実行
         window.addEventListener('load', handleRedirect);
     </script>
