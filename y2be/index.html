@@ -263,18 +263,21 @@
         }
 
         function buildRedirectUrl(parsedQuery) {
-            const { type, videoId, time } = parsedQuery;
+            const { type, videoId, channelId, time } = parsedQuery;
             let baseUrl;
             
             if (type === 'watch') {
                 baseUrl = `https://youtu.be/${videoId}`;
             } else if (type === 'live') {
                 baseUrl = `https://www.youtube.com/live/${videoId}`;
+            } else if (type === 'channel') {
+                baseUrl = `https://www.youtube.com/${channelId}`;
             } else {
                 return null;
             }
             
-            if (time) {
+            // チャンネルの場合は時間パラメータは追加しない
+            if (time && type !== 'channel') {
                 baseUrl += `?t=${time}`;
             }
             
