@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube リダイレクター</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        
+        .header h1 {
+            color: #ff0000;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+        }
+        
+        .usage-section {
+            margin-bottom: 30px;
+        }
+        
+        .usage-section h2 {
+            color: #333;
+            border-bottom: 3px solid #ff0000;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .format-example {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .format-title {
+            font-weight: bold;
+            color: #007bff;
+            margin-bottom: 10px;
+        }
+        
+        .format-code {
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 5px 0;
+            word-break: break-all;
+        }
+        
+        .arrow {
+            text-align: center;
+            font-size: 1.5em;
+            color: #28a745;
+            margin: 10px 0;
+        }
+        
+        .sample-links {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .sample-links h3 {
+            color: #856404;
+            margin-top: 0;
+        }
+        
+        .sample-link {
+            display: block;
+            background: #007bff;
+            color: white;
+            text-decoration: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            transition: background-color 0.3s;
+        }
+        
+        .sample-link:hover {
+            background: #0056b3;
+        }
+        
+        .note {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #0c5460;
+        }
+        
+        .status {
+            text-align: center;
+            font-size: 1.2em;
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+        }
+        
+        .status.redirecting {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            display: block;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            display: block;
+        }
+        
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+            }
+            
+            .container {
+                padding: 20px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .format-code {
+                font-size: 0.9em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📺 YouTube リダイレクター</h1>
+            <p>簡単なクエリでYouTube動画やライブ配信にアクセス</p>
+        </div>
+        
+        <div id="status" class="status"></div>
+        
+        <div class="usage-section">
+            <h2>🔗 使用方法</h2>
+            
+            <div class="format-example">
+                <div class="format-title">1. 通常動画の場合</div>
+                <div class="format-code">?code=watch,&lt;動画ID&gt;,t=&lt;再生開始秒数&gt;</div>
+                <div class="arrow">↓ リダイレクト先</div>
+                <div class="format-code">https://youtu.be/&lt;動画ID&gt;?t=&lt;再生開始秒数&gt;</div>
+            </div>
+            
+            <div class="format-example">
+                <div class="format-title">2. ライブ配信の場合</div>
+                <div class="format-code">?code=live,&lt;動画ID&gt;,t=&lt;再生開始秒数&gt;</div>
+                <div class="arrow">↓ リダイレクト先</div>
+                <div class="format-code">https://www.youtube.com/live/&lt;動画ID&gt;?t=&lt;再生開始秒数&gt;</div>
+            </div>
+            
+            <div class="note">
+                <strong>📝 注意:</strong> 3つ目の引数（t=秒数）は省略可能です。省略した場合は動画の最初から再生されます。
+            </div>
+        </div>
+        
+        <div class="sample-links">
+            <h3>🎬 サンプルリンク</h3>
+            <p>以下のリンクをクリックして動作を確認してください：</p>
+            
+            <a href="?code=watch,dQw4w9WgXcQ,t=30" class="sample-link" onclick="return handleSampleClick(this)">
+                通常動画（30秒から再生）
+            </a>
+            
+            <a href="?code=watch,dQw4w9WgXcQ" class="sample-link" onclick="return handleSampleClick(this)">
+                通常動画（最初から再生）
+            </a>
+            
+            <a href="?code=live,jfKfPfyJRdk,t=120" class="sample-link" onclick="return handleSampleClick(this)">
+                ライブ配信（2分から再生）
+            </a>
+            
+            <a href="?code=live,jfKfPfyJRdk" class="sample-link" onclick="return handleSampleClick(this)">
+                ライブ配信（最初から再生）
+            </a>
+        </div>
+        
+        <div class="usage-section">
+            <h2>💡 パラメータ説明</h2>
+            <ul>
+                <li><strong>watch:</strong> 通常のYouTube動画</li>
+                <li><strong>live:</strong> YouTubeライブ配信</li>
+                <li><strong>動画ID:</strong> YouTubeの11文字の動画識別子</li>
+                <li><strong>t=秒数:</strong> 再生開始時間（オプション）</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        function showStatus(message, type) {
+            const statusElement = document.getElementById('status');
+            statusElement.textContent = message;
+            statusElement.className = `status ${type}`;
+        }
+
+        function parseQuery() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const codeParam = urlParams.get('code');
+            
+            if (!codeParam) {
+                return null;
+            }
+            
+            const parts = codeParam.split(',');
+            if (parts.length < 2) {
+                return null;
+            }
+            
+            const type = parts[0].trim();
+            const videoId = parts[1].trim();
+            
+            // 時間パラメータの解析
+            let timeParam = null;
+            if (parts.length > 2) {
+                const timePart = parts[2].trim();
+                if (timePart.startsWith('t=')) {
+                    timeParam = timePart.substring(2);
+                }
+            }
+            
+            return {
+                type: type,
+                videoId: videoId,
+                time: timeParam
+            };
+        }
+
+        function buildRedirectUrl(parsedQuery) {
+            const { type, videoId, time } = parsedQuery;
+            let baseUrl;
+            
+            if (type === 'watch') {
+                baseUrl = `https://youtu.be/${videoId}`;
+            } else if (type === 'live') {
+                baseUrl = `https://www.youtube.com/live/${videoId}`;
+            } else {
+                return null;
+            }
+            
+            if (time) {
+                baseUrl += `?t=${time}`;
+            }
+            
+            return baseUrl;
+        }
+
+        function handleRedirect() {
+            const parsedQuery = parseQuery();
+            
+            if (!parsedQuery) {
+                return; // クエリがない場合は説明画面を表示
+            }
+            
+            const redirectUrl = buildRedirectUrl(parsedQuery);
+            
+            if (!redirectUrl) {
+                showStatus('❌ 無効なクエリパラメータです', 'error');
+                return;
+            }
+            
+            showStatus(`🔄 リダイレクト中: ${redirectUrl}`, 'redirecting');
+            
+            setTimeout(() => {
+                window.location.href = redirectUrl;
+            }, 1500);
+        }
+
+        function handleSampleClick(element) {
+            const href = element.getAttribute('href');
+            showStatus(`🔄 サンプルリンクを処理中...`, 'redirecting');
+            
+            setTimeout(() => {
+                window.location.href = window.location.pathname + href;
+            }, 1000);
+            
+            return false; // デフォルトのクリック動作を防ぐ
+        }
+
+        // ページ読み込み時にリダイレクト処理を実行
+        window.addEventListener('load', handleRedirect);
+    </script>
+</body>
+</html>
