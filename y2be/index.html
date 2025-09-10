@@ -200,7 +200,7 @@
             
             let result = { type: type };
             
-            if (type === 'watch' || type === 'live') {
+            if (type === 'watch' || type === 'live' || type === 'shorts') {
                 result.videoId = idPart;
             } else if (type === 'channel') {
                 result.channelId = idPart;
