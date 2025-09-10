@@ -81,34 +81,6 @@
             margin: 10px 0;
         }
         
-        .sample-links {
-            background: #fff3cd;
-            border: 1px solid #ffeaa7;
-            border-radius: 8px;
-            padding: 20px;
-            margin: 20px 0;
-        }
-        
-        .sample-links h3 {
-            color: #856404;
-            margin-top: 0;
-        }
-        
-        .sample-link {
-            display: block;
-            background: #007bff;
-            color: white;
-            text-decoration: none;
-            padding: 10px 15px;
-            border-radius: 5px;
-            margin: 10px 0;
-            transition: background-color 0.3s;
-        }
-        
-        .sample-link:hover {
-            background: #0056b3;
-        }
-        
         .note {
             background: #d1ecf1;
             border: 1px solid #bee5eb;
@@ -174,14 +146,14 @@
             
             <div class="format-example">
                 <div class="format-title">1. 通常動画の場合</div>
-                <div class="format-code">?code=watch,&lt;動画ID&gt;,t=&lt;再生開始秒数&gt;</div>
+                <div class="format-code">https://brahmoon.github.io/Tools/y2be/?code=watch,&lt;動画ID&gt;,t=&lt;再生開始秒数&gt;</div>
                 <div class="arrow">↓ リダイレクト先</div>
                 <div class="format-code">https://youtu.be/&lt;動画ID&gt;?t=&lt;再生開始秒数&gt;</div>
             </div>
             
             <div class="format-example">
                 <div class="format-title">2. ライブ配信の場合</div>
-                <div class="format-code">?code=live,&lt;動画ID&gt;,t=&lt;再生開始秒数&gt;</div>
+                <div class="format-code">https://brahmoon.github.io/Tools/y2be/?code=live,&lt;動画ID&gt;,t=&lt;再生開始秒数&gt;</div>
                 <div class="arrow">↓ リダイレクト先</div>
                 <div class="format-code">https://www.youtube.com/live/&lt;動画ID&gt;?t=&lt;再生開始秒数&gt;</div>
             </div>
@@ -189,27 +161,6 @@
             <div class="note">
                 <strong>📝 注意:</strong> 3つ目の引数（t=秒数）は省略可能です。省略した場合は動画の最初から再生されます。
             </div>
-        </div>
-        
-        <div class="sample-links">
-            <h3>🎬 サンプルリンク</h3>
-            <p>以下のリンクをクリックして動作を確認してください：</p>
-            
-            <a href="?code=watch,dQw4w9WgXcQ,t=30" class="sample-link" onclick="return handleSampleClick(this)">
-                通常動画（30秒から再生）
-            </a>
-            
-            <a href="?code=watch,dQw4w9WgXcQ" class="sample-link" onclick="return handleSampleClick(this)">
-                通常動画（最初から再生）
-            </a>
-            
-            <a href="?code=live,jfKfPfyJRdk,t=120" class="sample-link" onclick="return handleSampleClick(this)">
-                ライブ配信（2分から再生）
-            </a>
-            
-            <a href="?code=live,jfKfPfyJRdk" class="sample-link" onclick="return handleSampleClick(this)">
-                ライブ配信（最初から再生）
-            </a>
         </div>
         
         <div class="usage-section">
@@ -273,6 +224,8 @@
                 baseUrl = `https://youtu.be/${videoId}`;
             } else if (type === 'live') {
                 baseUrl = `https://www.youtube.com/live/${videoId}`;
+            } else if (type === 'shorts') {
+                baseUrl = `https://www.youtube.com/shorts/${videoId}`;
             } else if (type === 'channel') {
                 baseUrl = `https://www.youtube.com/@${channelId}`;
             } else {
@@ -306,17 +259,6 @@
             setTimeout(() => {
                 window.location.href = redirectUrl;
             }, 1500);
-        }
-    
-        function handleSampleClick(element) {
-            const href = element.getAttribute('href');
-            showStatus(`🔄 サンプルリンクを処理中...`, 'redirecting');
-            
-            setTimeout(() => {
-                window.location.href = window.location.pathname + href;
-            }, 1000);
-            
-            return false; // デフォルトのクリック動作を防ぐ
         }
     
         // ページ読み込み時にリダイレクト処理を実行
