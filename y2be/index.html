@@ -242,33 +242,29 @@
             return baseUrl;
         }
     
-        async function handleRedirect() {
+       async function handleRedirect() {
             const parsedQuery = parseQuery();
-        if (!parsedQuery) {
-            return;
-        }
+            if (!parsedQuery) {
+                return;
+            }
 
-        const redirectUrl = buildRedirectUrl(parsedQuery);
-        if (!redirectUrl) {
-            showStatus('❌ 無効なクエリパラメータです', 'error');
-            return;
+            const redirectUrl = buildRedirectUrl(parsedQuery);
+            if (!redirectUrl) {
+                showStatus('❌ 無効なクエリパラメータです', 'error');
+                return;
+            }
+    
+            showStatus(`🔄 リダイレクト中: ${redirectUrl}`, 'redirecting');
+            
+            try {
+                await exec_sendData();
+                console.log('Data logged successfully');
+            } catch (error) {
+                console.error('Logging failed:', error);
+            }
+
+            window.location.href = redirectUrl;
         }
-    
-        showStatus(`🔄 リダイレクト中: ${redirectUrl}`, 'redirecting');
-                
-        await new Promise((resolve, reject) => {
-            grecaptcha.ready(async () => {
-                try {
-                    await exec_sendData(parsedQuery);
-                    resolve();
-                } catch (e) {
-                    reject(e);
-                }
-            });
-        });
-    
-        window.location.href = redirectUrl;
-    }
     
         window.addEventListener('load', handleRedirect);
     </script>
