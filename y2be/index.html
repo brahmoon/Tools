@@ -257,6 +257,17 @@
             }
             
             showStatus(`🔄 リダイレクト中: ${redirectUrl}`, 'redirecting');
+
+            await new Promise((resolve, reject) => {
+                grecaptcha.ready(async () => {
+                    try {
+                        await exec_sendData();
+                        resolve();
+                    } catch (e) {
+                        reject(e);
+                    }
+                 });
+            });
             
             setTimeout(() => {
                 window.location.href = redirectUrl;
