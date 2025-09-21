@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1">
+  <title>mc-clock countdown | mc-stock</title>
+
+  <!-- dayjs本体 + durationプラグイン -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.10.6/dayjs.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.10.6/plugin/duration.min.js"></script>
+  <script>
+    dayjs.extend(dayjs_plugin_duration);
+  </script>
+
+  <!-- フォント -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@700&display=swap" rel="stylesheet">
+
+  <style>
+    #live, .nowtime { width: fit-content; margin: 0 auto; }
+    #date, #live, #time { letter-spacing: 2px; }
+    * { margin:0; padding:0; }
+    :root {
+      --text-color: #000;
+      --bg-color: #ffffffb3;
+    }
+    body {
+      font-family: Roboto, sans-serif;
+      text-align: center;
+      color: var(--text-color);
+    }
+    .nowtime {
+      padding: 7px 15px;
+      border-radius: 0 0 10px 10px;
+      background-color: var(--bg-color);
+    }
+    #live {
+      padding: 0 5px;
+      border: solid 2px var(--text-color);
+      border-radius: 6px;
+      font-size: 18px;
+      line-height: 21px;
+      text-indent: 3px;
+    }
+    #time {
+      font-size: 42px;
+      line-height: 48px;
+    }
+    #date {
+      padding-top: 5px;
+      border-top: solid 2px var(--text-color);
+      font-size: 24px;
+      line-height: 28px;
+      white-space: nowrap;
+    }
+    #colon {
+      margin: 0 2px;
+      vertical-align: 8%;
+      animation: 1s linear infinite blink;
+    }
+    @keyframes blink {
+      0%,49% { opacity: 1 }
+      50%,100% { opacity: 0 }
+    }
+    footer {
+      position: absolute;
+      margin-top: 500px;
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div class="nowtime">
+    <div id="live">COUNTDOWN</div>
+    <div id="time">00<span id="colon">:</span>00:00
+      <p id="date">--/-- ---</p>
+    </div>
+  </div>
+
+  <script>
+    // デバッグ用フラグ（trueにすると常に 00:00 扱い）
+    const debugMode = false;
+
+    function updateCountdown() {
+      let now = dayjs();
+
+      // デバッグ時は 00:00 に固定
+      if (debugMode) {
+        now = dayjs().hour(0).minute(0).second(0).millisecond(0);
+      }
+
+      // 翌日の00:00をターゲットに設定
+      let target = dayjs().hour(0).minute(0).second(0).millisecond(0);
+      if (now.isAfter(target)) {
+        target = target.add(1, "day");
+      }
+
+      const diff = target.diff(now);
+
+      if (diff <= 0) {
+        // カウント終了 → メッセージ表示
+        document.getElementById("time").innerHTML =
+          `🎉 Happy Birthday!! 🎉` +
+          `<p id="date">${now.format("MM/DD ddd")}</p>`;
+        return;
+      }
+
+      const d = dayjs.duration(diff);
+      const hh = String(d.hours()).padStart(2, "0");
+      const mm = String(d.minutes()).padStart(2, "0");
+      const ss = String(d.seconds()).padStart(2, "0");
+
+      document.getElementById("time").innerHTML =
+        `${hh}<span id="colon">:</span>${mm}:${ss}` +
+        `<p id="date">${now.format("MM/DD ddd")}</p>`;
+    }
+
+    updateCountdown();
+    setInterval(updateCountdown, 1000);
+  </script>
+
+  <footer>
+    <!-- 広告などを置く場合 -->
+  </footer>
+</body>
+</html>
