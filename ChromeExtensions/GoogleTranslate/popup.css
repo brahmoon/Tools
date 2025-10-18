@@ -3,12 +3,18 @@
   font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   margin: 0;
   padding: 0;
   min-width: 320px;
   background: #f7f9fc;
   color: #202124;
+  position: relative;
 }
 
 .container {
@@ -16,6 +22,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding-right: 20px;
 }
 
 .title {
@@ -127,4 +134,31 @@ textarea:focus {
 .time-meta .value {
   color: #5f6368;
   font-size: 11px;
+}
+
+.resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 10px;
+  height: 100%;
+  cursor: ew-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+
+.resize-handle::after {
+  content: '';
+  width: 2px;
+  height: 32px;
+  border-radius: 1px;
+  background: rgba(26, 115, 232, 0.4);
+  transition: background 0.2s ease-in-out;
+}
+
+.resize-handle:hover::after,
+body.resizing .resize-handle::after {
+  background: rgba(26, 115, 232, 0.8);
 }
