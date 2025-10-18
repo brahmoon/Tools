@@ -1,0 +1,130 @@
+:root {
+  color-scheme: light dark;
+  font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-width: 320px;
+  background: #f7f9fc;
+  color: #202124;
+}
+
+.container {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.title {
+  margin: 0 0 12px;
+  font-size: 18px;
+  color: #1a73e8;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+label {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 60px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid #d2d6dc;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+textarea:focus {
+  outline: none;
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.2);
+}
+
+#translate-button {
+  background: #1a73e8;
+  border: none;
+  color: #fff;
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s ease-in-out;
+}
+
+#translate-button:disabled {
+  background: #90c2ff;
+  cursor: progress;
+}
+
+#translate-button:hover:not(:disabled) {
+  background: #1558b0;
+}
+
+.hint {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: #5f6368;
+}
+
+.result {
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.meta {
+  display: flex;
+  gap: 6px;
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.label {
+  font-weight: 600;
+  color: #1f1f1f;
+}
+
+.value {
+  flex: 1;
+}
+
+.value.translated {
+  white-space: pre-wrap;
+}
+
+.status {
+  font-size: 12px;
+  color: #5f6368;
+}
+
+.status[data-kind='error'] {
+  color: #d93025;
+}
+
+.status[data-kind='success'] {
+  color: #188038;
+}
+
+.status[data-kind='progress'] {
+  color: #1a73e8;
+}
+
+.time-meta .value {
+  color: #5f6368;
+  font-size: 11px;
+}

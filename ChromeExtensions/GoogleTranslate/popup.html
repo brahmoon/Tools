@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Google翻訳</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="container">
+      <section class="form-section">
+        <h1 class="title">Google翻訳</h1>
+        <form id="translate-form">
+          <label for="text-input">翻訳したいテキスト</label>
+          <textarea id="text-input" rows="3" placeholder="テキストを入力してください"></textarea>
+          <button type="submit" id="translate-button">翻訳</button>
+        </form>
+        <p class="hint">※ コンテキストメニューから選択した文章もこちらに表示されます。</p>
+      </section>
+      <section class="result-section">
+        <div id="status" class="status" hidden></div>
+        <div id="result" class="result" hidden>
+          <div class="meta">
+            <span class="label">判別言語:</span>
+            <span id="detected-language" class="value"></span>
+          </div>
+          <div class="meta">
+            <span class="label">原文:</span>
+            <span id="source-text" class="value"></span>
+          </div>
+          <div class="meta">
+            <span class="label">翻訳:</span>
+            <span id="translated-text" class="value translated"></span>
+          </div>
+          <div class="meta time-meta">
+            <span class="label">更新:</span>
+            <span id="updated-at" class="value"></span>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

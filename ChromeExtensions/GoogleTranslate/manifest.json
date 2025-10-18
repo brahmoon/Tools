@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Google翻訳コンテキスト",
+  "description": "選択した文章や入力テキストをGoogle翻訳で自動判別し日本語に翻訳します。",
+  "version": "1.0.0",
+  "permissions": [
+    "contextMenus",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://translate.googleapis.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Google翻訳",
+    "default_popup": "popup.html"
+  }
+}
