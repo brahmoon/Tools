@@ -7,6 +7,142 @@ const detectedLanguageElement = document.getElementById('detected-language');
 const sourceTextElement = document.getElementById('source-text');
 const translatedTextElement = document.getElementById('translated-text');
 const updatedAtElement = document.getElementById('updated-at');
+const resizeHandle = document.getElementById('resize-handle');
+
+const WIDTH_STORAGE_KEY = 'popupWidth';
+const MIN_POPUP_WIDTH = 320;
+const MAX_POPUP_WIDTH = 800;
+
+function clampWidth(width) {
+  if (typeof width !== 'number' || Number.isNaN(width)) {
+    return MIN_POPUP_WIDTH;
+  }
+  return Math.min(MAX_POPUP_WIDTH, Math.max(MIN_POPUP_WIDTH, Math.round(width)));
+}
+
+function applyPopupWidth(width) {
+  const clamped = clampWidth(width);
+  try {
+    window.resizeTo(clamped, window.outerHeight);
+  } catch (error) {
+    console.error('Failed to resize popup window', error);
+  }
+  return clamped;
+}
+
+async function restorePopupWidth() {
+  if (!resizeHandle) {
+    return;
+  }
+  const storageArea = chrome?.storage?.local;
+  if (!storageArea) {
+    return;
+  }
+  try {
+    const stored = await new Promise((resolve, reject) => {
+      const callback = (items) => {
+        const error = chrome.runtime?.lastError;
+        if (error) {
+          reject(new Error(error.message));
+        } else {
+          resolve(items);
+        }
+      };
+      const maybePromise = storageArea.get(WIDTH_STORAGE_KEY, callback);
+      if (maybePromise && typeof maybePromise.then === 'function') {
+        maybePromise.then(resolve).catch(reject);
+      }
+    });
+    const width = stored?.[WIDTH_STORAGE_KEY];
+    if (typeof width === 'number') {
+      applyPopupWidth(width);
+    }
+  } catch (error) {
+    console.error('Failed to restore popup width', error);
+  }
+}
+
+function persistPopupWidth(width) {
+  const storageArea = chrome?.storage?.local;
+  if (!storageArea) {
+    return;
+  }
+  const clamped = clampWidth(width ?? window.outerWidth);
+  try {
+    const maybePromise = storageArea.set({ [WIDTH_STORAGE_KEY]: clamped }, () => {
+      const error = chrome.runtime?.lastError;
+      if (error) {
+        console.error('Failed to save popup width', error);
+      }
+    });
+    if (maybePromise && typeof maybePromise.catch === 'function') {
+      maybePromise.catch((error) => console.error('Failed to save popup width', error));
+    }
+  } catch (error) {
+    console.error('Failed to save popup width', error);
+  }
+}
+
+function setupResizeHandle() {
+  if (!resizeHandle) {
+    return;
+  }
+
+  let isDragging = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  resizeHandle.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) {
+      return;
+    }
+    isDragging = true;
+    startX = event.screenX;
+    startWidth = window.outerWidth;
+    document.body.classList.add('resizing');
+    if (typeof resizeHandle.setPointerCapture === 'function') {
+      resizeHandle.setPointerCapture(event.pointerId);
+    }
+    event.preventDefault();
+  });
+
+  resizeHandle.addEventListener('pointermove', (event) => {
+    if (!isDragging) {
+      return;
+    }
+    const delta = event.screenX - startX;
+    const newWidth = clampWidth(startWidth + delta);
+    applyPopupWidth(newWidth);
+  });
+
+  function stopResizing(event) {
+    if (!isDragging) {
+      return;
+    }
+    isDragging = false;
+    document.body.classList.remove('resizing');
+    if (
+      event?.pointerId != null &&
+      typeof resizeHandle.hasPointerCapture === 'function' &&
+      resizeHandle.hasPointerCapture(event.pointerId)
+    ) {
+      resizeHandle.releasePointerCapture(event.pointerId);
+    }
+    persistPopupWidth(window.outerWidth);
+  }
+
+  resizeHandle.addEventListener('pointerup', stopResizing);
+  resizeHandle.addEventListener('pointercancel', stopResizing);
+
+  window.addEventListener('blur', () => {
+    if (!isDragging) {
+      return;
+    }
+    isDragging = false;
+    document.body.classList.remove('resizing');
+    persistPopupWidth(window.outerWidth);
+  });
+}
 
 function setStatus(message, kind = 'info') {
   if (!message) {
@@ -113,3 +249,5 @@ chrome.runtime.onMessage.addListener((message) => {
 });
 
 loadLatestTranslation();
+restorePopupWidth();
+setupResizeHandle();
