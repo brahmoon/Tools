@@ -211,28 +211,74 @@
       window.addEventListener("pointercancel", endDrag);
     }
 
+    function getHandleIndex(handle) {
+      const value = handle.dataset.columnIndex;
+      if (!value) {
+        return -1;
+      }
+
+      const parsed = Number.parseInt(value, 10);
+      return Number.isNaN(parsed) ? -1 : parsed;
+    }
+
+    function onHandlePointerDown(event) {
+      const handle = event.currentTarget;
+      if (!(handle instanceof HTMLElement)) {
+        return;
+      }
+
+      const index = getHandleIndex(handle);
+      if (index < 0) {
+        return;
+      }
+
+      const header = headers[index];
+      if (!header) {
+        return;
+      }
+
+      beginDrag(event, index, header, handle);
+    }
+
+    function onHandleKeyDown(event) {
+      const handle = event.currentTarget;
+      if (!(handle instanceof HTMLElement)) {
+        return;
+      }
+
+      const index = getHandleIndex(handle);
+      if (index < 0) {
+        return;
+      }
+
+      const header = headers[index];
+      if (!header) {
+        return;
+      }
+
+      if (!state.widths[index]) {
+        state.widths[index] = header.getBoundingClientRect().width;
+      }
+
+      const step = event.shiftKey ? 20 : 10;
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        const next = clamp(state.widths[index] - step, settings.minWidth, settings.maxWidth);
+        setWidth(index, next);
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        const next = clamp(state.widths[index] + step, settings.minWidth, settings.maxWidth);
+        setWidth(index, next);
+      }
+    }
+
     headers.forEach((header, index) => {
       ensureRelativePosition(header);
 
       const handle = createHandleElement(settings.handleClass);
-      handle.addEventListener("pointerdown", (event) => beginDrag(event, index, header, handle));
-
-      handle.addEventListener("keydown", (event) => {
-        if (!state.widths[index]) {
-          state.widths[index] = header.getBoundingClientRect().width;
-        }
-
-        const step = event.shiftKey ? 20 : 10;
-        if (event.key === "ArrowLeft") {
-          event.preventDefault();
-          const next = clamp(state.widths[index] - step, settings.minWidth, settings.maxWidth);
-          setWidth(index, next);
-        } else if (event.key === "ArrowRight") {
-          event.preventDefault();
-          const next = clamp(state.widths[index] + step, settings.minWidth, settings.maxWidth);
-          setWidth(index, next);
-        }
-      });
+      handle.dataset.columnIndex = String(index);
+      handle.addEventListener("pointerdown", onHandlePointerDown);
+      handle.addEventListener("keydown", onHandleKeyDown);
 
       header.appendChild(handle);
       state.handles.push(handle);
@@ -250,7 +296,11 @@
 
     function destroy() {
       endDrag();
-      state.handles.forEach((handle) => handle.remove());
+      state.handles.forEach((handle) => {
+        handle.removeEventListener("pointerdown", onHandlePointerDown);
+        handle.removeEventListener("keydown", onHandleKeyDown);
+        handle.remove();
+      });
       state.handles.length = 0;
       headers.forEach(restorePosition);
       activeTables.delete(table);
