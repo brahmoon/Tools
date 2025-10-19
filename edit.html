@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Resizable Table Demo</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" />
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background-color: #f5f7fb;
+      color: #1f2937;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      box-sizing: border-box;
+    }
+
+    .container {
+      width: min(960px, 100%);
+      background: #ffffff;
+      border-radius: 16px;
+      box-shadow: 0 20px 45px rgba(15, 23, 42, 0.12);
+      padding: 2rem 2.5rem;
+      box-sizing: border-box;
+    }
+
+    h1 {
+      margin-top: 0;
+      margin-bottom: 1.25rem;
+      font-weight: 600;
+      font-size: clamp(1.75rem, 2.5vw + 1rem, 2.25rem);
+      color: #0f172a;
+    }
+
+    p.description {
+      margin-top: 0;
+      margin-bottom: 2rem;
+      color: #4b5563;
+      line-height: 1.6;
+      max-width: 60ch;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      overflow: hidden;
+      border-radius: 12px;
+      border: 1px solid #e5e7eb;
+    }
+
+    thead {
+      background: linear-gradient(90deg, #2563eb, #4f46e5);
+      color: #ffffff;
+    }
+
+    th,
+    td {
+      padding: 0.85rem 1rem;
+      text-align: left;
+      position: relative;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    tbody tr:nth-child(even) {
+      background: #f8fafc;
+    }
+
+    tbody tr:hover {
+      background: #eef2ff;
+    }
+
+    .rt-handle {
+      position: absolute;
+      top: 0;
+      right: -4px;
+      width: 8px;
+      cursor: col-resize;
+      user-select: none;
+      touch-action: none;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .rt-handle::before {
+      content: "";
+      width: 2px;
+      height: 60%;
+      background: rgba(255, 255, 255, 0.7);
+      border-radius: 2px;
+      transition: background 0.2s ease;
+    }
+
+    th:hover .rt-handle::before,
+    .rt-handle:focus::before,
+    .rt-handle:active::before {
+      background: rgba(255, 255, 255, 0.95);
+    }
+
+    .rt-dragging {
+      user-select: none;
+      cursor: col-resize !important;
+    }
+
+    @media (max-width: 768px) {
+      body {
+        padding: 1rem;
+      }
+
+      .container {
+        padding: 1.5rem;
+      }
+
+      table {
+        font-size: 0.875rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <h1>Resizable Table</h1>
+    <p class="description">
+      Drag the handles that appear on each column header to adjust the column width. The layout persists across
+      reloads thanks to local storage.
+    </p>
+    <div class="table-wrapper">
+      <table id="team-table">
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Role</th>
+            <th scope="col">Email</th>
+            <th scope="col">Location</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Jane Cooper</td>
+            <td>Project Manager</td>
+            <td>jane.cooper@example.com</td>
+            <td>Seattle, WA</td>
+          </tr>
+          <tr>
+            <td>Wade Warren</td>
+            <td>Lead Developer</td>
+            <td>wade.warren@example.com</td>
+            <td>Denver, CO</td>
+          </tr>
+          <tr>
+            <td>Esther Howard</td>
+            <td>UX Researcher</td>
+            <td>esther.howard@example.com</td>
+            <td>Austin, TX</td>
+          </tr>
+          <tr>
+            <td>Cameron Williamson</td>
+            <td>QA Engineer</td>
+            <td>cameron.williamson@example.com</td>
+            <td>Portland, OR</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+  <script src="extensions/resizableTable/ResizableTable.js"></script>
+  <script>
+    window.addEventListener("unhandledrejection", (event) => {
+      const message = event?.reason?.message;
+      if (typeof message === "string" && message.includes("A listener indicated an asynchronous response")) {
+        console.warn("Suppressed asynchronous response warning", message);
+        event.preventDefault();
+      }
+    });
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const table = document.getElementById("team-table");
+      if (table) {
+        window.createResizableTable(table, {
+          minWidth: 120,
+          storageKey: "team-table-widths",
+        });
+      }
+    });
+  </script>
+</body>
+</html>
