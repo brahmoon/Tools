@@ -15,161 +15,150 @@
     return Math.min(Math.max(value, min), max);
   }
 
-  function loadStoredWidths(key, columnCount) {
+  function readWidths(key, columnCount) {
     if (!key || !window.localStorage) {
       return null;
     }
 
     try {
-      const payload = window.localStorage.getItem(key);
-      if (!payload) {
+      const stored = window.localStorage.getItem(key);
+      if (!stored) {
         return null;
       }
 
-      const parsed = JSON.parse(payload);
+      const parsed = JSON.parse(stored);
       if (!Array.isArray(parsed)) {
         return null;
       }
 
-      const widths = new Array(columnCount).fill(null);
-      for (let i = 0; i < columnCount; i += 1) {
-        const width = parsed[i];
-        if (typeof width === "number" && Number.isFinite(width) && width > 0) {
-          widths[i] = width;
+      const result = new Array(columnCount).fill(null);
+      for (let index = 0; index < columnCount; index += 1) {
+        const value = parsed[index];
+        if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+          result[index] = value;
         }
       }
-
-      return widths;
+      return result;
     } catch (error) {
-      console.warn("Failed to load stored widths", error);
+      console.warn("createResizableTable: unable to read stored widths", error);
       return null;
     }
   }
 
-  function storeWidths(key, widths) {
+  function writeWidths(key, widths) {
     if (!key || !window.localStorage) {
       return;
     }
 
     try {
-      const serialised = JSON.stringify(widths);
-      window.localStorage.setItem(key, serialised);
+      window.localStorage.setItem(key, JSON.stringify(widths));
     } catch (error) {
-      console.warn("Failed to persist column widths", error);
+      console.warn("createResizableTable: unable to persist column widths", error);
     }
   }
 
-  function getHeaderCells(table) {
+  function getHeaders(table) {
     const head = table.tHead;
     if (head && head.rows.length > 0) {
       return Array.from(head.rows[0].cells);
     }
-
     if (table.rows.length > 0) {
       return Array.from(table.rows[0].cells);
     }
-
     return [];
   }
 
+  function ensureRelativePosition(element) {
+    if (element.style.position === "" || element.style.position === "static") {
+      element.dataset.originalPosition = element.style.position;
+      element.style.position = "relative";
+    }
+  }
+
+  function restorePosition(element) {
+    if (Object.prototype.hasOwnProperty.call(element.dataset, "originalPosition")) {
+      element.style.position = element.dataset.originalPosition;
+      delete element.dataset.originalPosition;
+    }
+  }
+
   function applyWidth(table, columnIndex, width) {
-    const pixelWidth = `${width}px`;
+    const value = `${width}px`;
     Array.from(table.rows).forEach((row) => {
       const cell = row.cells[columnIndex];
       if (!cell) {
         return;
       }
-
-      cell.style.width = pixelWidth;
-      cell.style.minWidth = pixelWidth;
-      cell.style.maxWidth = pixelWidth;
+      cell.style.width = value;
+      cell.style.minWidth = value;
+      cell.style.maxWidth = value;
     });
   }
 
-  function resetExistingHandles(table, handleClass) {
-    table.querySelectorAll(`.${handleClass}`).forEach((handle) => {
+  function removeExistingHandles(table, className) {
+    table.querySelectorAll(`.${className}`).forEach((handle) => {
       const header = handle.parentElement;
       if (header) {
-        header.style.position = header.dataset.originalPosition || "";
-        delete header.dataset.originalPosition;
+        restorePosition(header);
       }
       handle.remove();
     });
   }
 
-  function createHandleElement(options) {
+  function createHandleElement(className) {
     const handle = document.createElement("span");
-    handle.className = options.handleClass;
+    handle.className = className;
     handle.role = "separator";
     handle.tabIndex = 0;
     handle.setAttribute("aria-orientation", "vertical");
+    handle.setAttribute("aria-label", "Resize column");
     return handle;
   }
 
-  function createResizableTable(table, config = {}) {
+  function createResizableTable(table, options = {}) {
     if (!(table instanceof HTMLTableElement)) {
-      throw new TypeError("Expected a table element.");
+      throw new TypeError("createResizableTable expects a table element");
     }
 
-    const options = { ...defaultOptions, ...config };
+    const settings = { ...defaultOptions, ...options };
     table.style.tableLayout = "fixed";
 
     if (activeTables.has(table)) {
-      const previousState = activeTables.get(table);
-      previousState.destroy();
+      activeTables.get(table).destroy();
     }
 
-    resetExistingHandles(table, options.handleClass);
+    removeExistingHandles(table, settings.handleClass);
 
-    const headers = getHeaderCells(table);
-    const columnCount = headers.length;
-
-    if (columnCount === 0) {
-      console.warn("createResizableTable: table has no header cells to attach resizers.");
+    const headers = getHeaders(table);
+    if (headers.length === 0) {
+      console.warn("createResizableTable: no header cells found");
       return () => {};
     }
 
-    const storedWidths = loadStoredWidths(options.storageKey, columnCount);
     const state = {
-      options,
       table,
       headers,
-      widths: new Array(columnCount).fill(null),
+      widths: new Array(headers.length).fill(null),
       drag: null,
       handles: [],
-      destroy: () => {},
+      settings,
     };
 
-    function commitWidths() {
-      if (options.storageKey) {
-        storeWidths(options.storageKey, state.widths);
+    const storedWidths = readWidths(settings.storageKey, headers.length);
+
+    function persistWidths() {
+      if (settings.storageKey) {
+        writeWidths(settings.storageKey, state.widths);
       }
     }
 
-    function updateWidth(columnIndex, width) {
-      state.widths[columnIndex] = width;
-      applyWidth(table, columnIndex, width);
-      commitWidths();
+    function setWidth(index, width) {
+      state.widths[index] = width;
+      applyWidth(table, index, width);
+      persistWidths();
     }
 
-    function handlePointerMove(event) {
-      if (!state.drag) {
-        return;
-      }
-
-      const deltaX = event.clientX - state.drag.startX;
-      const width = clamp(
-        state.drag.startWidth + deltaX,
-        options.minWidth,
-        Number.isFinite(options.maxWidth) ? options.maxWidth : Number.MAX_SAFE_INTEGER
-      );
-
-      window.requestAnimationFrame(() => {
-        updateWidth(state.drag.index, width);
-      });
-    }
-
-    function stopDragging(event) {
+    function endDrag(event) {
       if (!state.drag) {
         return;
       }
@@ -178,43 +167,55 @@
         state.drag.handle.releasePointerCapture(event.pointerId);
       }
 
-      document.body.classList.remove(options.dragClass);
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", stopDragging);
-      window.removeEventListener("pointercancel", stopDragging);
+      document.body.classList.remove(settings.dragClass);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", endDrag);
+      window.removeEventListener("pointercancel", endDrag);
       state.drag = null;
     }
 
-    function startDragging(event, index, header, handle) {
+    function onPointerMove(event) {
+      if (!state.drag) {
+        return;
+      }
+
+      const delta = event.clientX - state.drag.startX;
+      const nextWidth = clamp(
+        state.drag.startWidth + delta,
+        settings.minWidth,
+        Number.isFinite(settings.maxWidth) ? settings.maxWidth : Number.MAX_SAFE_INTEGER
+      );
+
+      window.requestAnimationFrame(() => {
+        setWidth(state.drag.index, nextWidth);
+      });
+    }
+
+    function beginDrag(event, index, header, handle) {
       event.preventDefault();
-      const startWidth = header.getBoundingClientRect().width;
+
       state.drag = {
         index,
         startX: event.clientX,
-        startWidth,
-        header,
+        startWidth: header.getBoundingClientRect().width,
         handle,
       };
 
-      document.body.classList.add(options.dragClass);
+      document.body.classList.add(settings.dragClass);
       if (event.pointerId != null) {
         handle.setPointerCapture(event.pointerId);
       }
 
-      window.addEventListener("pointermove", handlePointerMove);
-      window.addEventListener("pointerup", stopDragging);
-      window.addEventListener("pointercancel", stopDragging);
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", endDrag);
+      window.addEventListener("pointercancel", endDrag);
     }
 
     headers.forEach((header, index) => {
-      if (header.style.position !== "relative") {
-        header.dataset.originalPosition = header.style.position;
-        header.style.position = "relative";
-      }
+      ensureRelativePosition(header);
 
-      const handle = createHandleElement(options);
-      const minWidth = options.minWidth;
-      handle.addEventListener("pointerdown", (event) => startDragging(event, index, header, handle));
+      const handle = createHandleElement(settings.handleClass);
+      handle.addEventListener("pointerdown", (event) => beginDrag(event, index, header, handle));
 
       handle.addEventListener("keydown", (event) => {
         if (!state.widths[index]) {
@@ -224,12 +225,12 @@
         const step = event.shiftKey ? 20 : 10;
         if (event.key === "ArrowLeft") {
           event.preventDefault();
-          const newWidth = clamp(state.widths[index] - step, minWidth, options.maxWidth);
-          updateWidth(index, newWidth);
+          const next = clamp(state.widths[index] - step, settings.minWidth, settings.maxWidth);
+          setWidth(index, next);
         } else if (event.key === "ArrowRight") {
           event.preventDefault();
-          const newWidth = clamp(state.widths[index] + step, minWidth, options.maxWidth);
-          updateWidth(index, newWidth);
+          const next = clamp(state.widths[index] + step, settings.minWidth, settings.maxWidth);
+          setWidth(index, next);
         }
       });
 
@@ -242,26 +243,23 @@
       if (!width || width <= 0) {
         return;
       }
-      const clamped = clamp(width, options.minWidth, options.maxWidth);
+      const clamped = clamp(width, settings.minWidth, settings.maxWidth);
       state.widths[index] = clamped;
       applyWidth(table, index, clamped);
     });
 
-    state.destroy = () => {
-      stopDragging();
+    function destroy() {
+      endDrag();
       state.handles.forEach((handle) => handle.remove());
-      headers.forEach((header) => {
-        if (header.dataset.originalPosition !== undefined) {
-          header.style.position = header.dataset.originalPosition;
-          delete header.dataset.originalPosition;
-        }
-      });
       state.handles.length = 0;
+      headers.forEach(restorePosition);
       activeTables.delete(table);
-    };
+    }
 
+    state.destroy = destroy;
     activeTables.set(table, state);
-    return state.destroy;
+
+    return destroy;
   }
 
   window.createResizableTable = createResizableTable;

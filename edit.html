@@ -177,6 +177,14 @@
   </main>
   <script src="extensions/resizableTable/ResizableTable.js"></script>
   <script>
+    window.addEventListener("unhandledrejection", (event) => {
+      const message = event?.reason?.message;
+      if (typeof message === "string" && message.includes("A listener indicated an asynchronous response")) {
+        console.warn("Suppressed asynchronous response warning", message);
+        event.preventDefault();
+      }
+    });
+
     document.addEventListener("DOMContentLoaded", () => {
       const table = document.getElementById("team-table");
       if (table) {
