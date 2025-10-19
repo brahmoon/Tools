@@ -175,7 +175,6 @@
       </table>
     </div>
   </main>
-  <script src="extensions/resizableTable/ResizableTable.js"></script>
   <script>
     window.addEventListener("unhandledrejection", (event) => {
       const message = event?.reason?.message;
@@ -185,15 +184,49 @@
       }
     });
 
-    document.addEventListener("DOMContentLoaded", () => {
-      const table = document.getElementById("team-table");
-      if (table) {
-        window.createResizableTable(table, {
-          minWidth: 120,
-          storageKey: "team-table-widths",
+    (function () {
+      const scriptLoaded = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "extensions/resizableTable/ResizableTable.js";
+        script.addEventListener("load", resolve, { once: true });
+        script.addEventListener(
+          "error",
+          () => {
+            reject(new Error("Unable to load ResizableTable.js"));
+          },
+          { once: true }
+        );
+        document.head.appendChild(script);
+      });
+
+      const domReady = new Promise((resolve) => {
+        if (document.readyState === "interactive" || document.readyState === "complete") {
+          resolve();
+          return;
+        }
+        document.addEventListener("DOMContentLoaded", resolve, { once: true });
+      });
+
+      Promise.all([domReady, scriptLoaded])
+        .then(() => {
+          if (typeof window.createResizableTable !== "function") {
+            throw new Error("createResizableTable is not available on window");
+          }
+
+          const table = document.getElementById("team-table");
+          if (!table) {
+            return;
+          }
+
+          window.createResizableTable(table, {
+            minWidth: 120,
+            storageKey: "team-table-widths",
+          });
+        })
+        .catch((error) => {
+          console.error(error);
         });
-      }
-    });
+    })();
   </script>
 </body>
 </html>
