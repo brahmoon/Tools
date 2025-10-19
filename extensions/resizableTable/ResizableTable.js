@@ -142,6 +142,7 @@
       drag: null,
       handles: [],
       settings,
+      pendingSave: false,
     };
 
     const storedWidths = readWidths(settings.storageKey, headers.length);
@@ -152,10 +153,26 @@
       }
     }
 
-    function setWidth(index, width) {
+    function setWidth(index, width, options = {}) {
+      if (typeof width !== "number" || !Number.isFinite(width)) {
+        return;
+      }
+
+      const behavior = { persist: true, markPending: false, ...options };
+      const previous = state.widths[index];
+
+      if (previous === width) {
+        return;
+      }
+
       state.widths[index] = width;
       applyWidth(table, index, width);
-      persistWidths();
+
+      if (behavior.persist) {
+        persistWidths();
+      } else if (behavior.markPending) {
+        state.pendingSave = true;
+      }
     }
 
     function endDrag(event) {
@@ -171,6 +188,10 @@
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", endDrag);
       window.removeEventListener("pointercancel", endDrag);
+      if (state.pendingSave) {
+        state.pendingSave = false;
+        persistWidths();
+      }
       state.drag = null;
     }
 
@@ -187,7 +208,7 @@
       );
 
       window.requestAnimationFrame(() => {
-        setWidth(state.drag.index, nextWidth);
+        setWidth(state.drag.index, nextWidth, { persist: false, markPending: true });
       });
     }
 
@@ -285,14 +306,22 @@
     });
 
     const initialWidths = storedWidths || headers.map((header) => header.getBoundingClientRect().width);
+    let sanitized = false;
+
     initialWidths.forEach((width, index) => {
       if (!width || width <= 0) {
         return;
       }
       const clamped = clamp(width, settings.minWidth, settings.maxWidth);
-      state.widths[index] = clamped;
-      applyWidth(table, index, clamped);
+      if (clamped !== width) {
+        sanitized = true;
+      }
+      setWidth(index, clamped, { persist: false });
     });
+
+    if (sanitized) {
+      persistWidths();
+    }
 
     function destroy() {
       endDrag();
