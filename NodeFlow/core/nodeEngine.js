@@ -196,22 +196,36 @@ export class NodeEditor {
     const node = this.nodes.get(nodeId);
     if (!node) return;
     this.draggedNode = node;
-    const rect = event.currentTarget.getBoundingClientRect();
+    const targetEl = event.currentTarget;
+    const pointerId = event.pointerId;
+    const rect = targetEl.getBoundingClientRect();
     const parentRect = this.nodeLayer.getBoundingClientRect();
     this.dragOffset.x = event.clientX - rect.left;
     this.dragOffset.y = event.clientY - rect.top;
-    event.currentTarget.setPointerCapture(event.pointerId);
+    if (targetEl.setPointerCapture) {
+      try {
+        targetEl.setPointerCapture(pointerId);
+      } catch (err) {
+        // Ignore if the element is no longer part of the DOM or the pointer is gone.
+      }
+    }
 
     const moveHandler = (ev) => this._dragNode(ev);
     const upHandler = (ev) => {
       this._endDrag(ev);
-      event.currentTarget.releasePointerCapture(event.pointerId);
-      event.currentTarget.removeEventListener('pointermove', moveHandler);
-      event.currentTarget.removeEventListener('pointerup', upHandler);
+      if (targetEl?.releasePointerCapture && targetEl.hasPointerCapture?.(pointerId)) {
+        try {
+          targetEl.releasePointerCapture(pointerId);
+        } catch (err) {
+          // The element might already be detached; ignore.
+        }
+      }
+      targetEl?.removeEventListener('pointermove', moveHandler);
+      targetEl?.removeEventListener('pointerup', upHandler);
     };
 
-    event.currentTarget.addEventListener('pointermove', moveHandler);
-    event.currentTarget.addEventListener('pointerup', upHandler);
+    targetEl?.addEventListener('pointermove', moveHandler);
+    targetEl?.addEventListener('pointerup', upHandler);
     this.dragOriginParentRect = parentRect;
   }
 
