@@ -59,11 +59,15 @@ export class NodeEditor {
     this.draggedNode = null;
     this.dragOffset = { x: 0, y: 0 };
     this.nodeCount = 0;
+    this.selectedNodeId = null;
+    this.portMenu = null;
 
     this.ctx = this.connectionLayer.getContext('2d');
 
     this._renderPalette();
+    this._setupPortContextMenu();
     this._bindPointerEvents();
+    this._bindKeyboardEvents();
     this.resize();
   }
 
@@ -119,6 +123,9 @@ export class NodeEditor {
     this.nodes.set(nodeId, node);
     this._renderNode(node);
     this._drawConnections();
+    this._selectNode(nodeId);
+    this.persistGraph();
+    return node;
   }
 
   _renderNode(node) {
@@ -145,7 +152,11 @@ export class NodeEditor {
       outputContainer.appendChild(port);
     });
 
-    el.addEventListener('pointerdown', (event) => this._startDrag(event, node.id));
+    el.addEventListener('pointerdown', (event) => {
+      this._selectNode(node.id);
+      this._startDrag(event, node.id);
+    });
+    el.addEventListener('focus', () => this._selectNode(node.id));
 
     this.nodeLayer.appendChild(el);
   }
@@ -170,6 +181,10 @@ export class NodeEditor {
     } else {
       port.append(label, handle);
     }
+
+    port.addEventListener('contextmenu', (event) =>
+      this._openPortContextMenu(event, { nodeId, portName: name, portType: type })
+    );
 
     return port;
   }
@@ -297,19 +312,34 @@ export class NodeEditor {
         c.toPort === this.activeConnection.toPort
     );
     if (!exists) {
-      this.connections = this.connections.filter(
-        (c) => !(c.toNode === this.activeConnection.toNode && c.toPort === this.activeConnection.toPort)
+      this._addConnection(
+        this.activeConnection.fromNode,
+        this.activeConnection.fromPort,
+        this.activeConnection.toNode,
+        this.activeConnection.toPort
       );
-      this.connections.push({
-        fromNode: this.activeConnection.fromNode,
-        fromPort: this.activeConnection.fromPort,
-        toNode: this.activeConnection.toNode,
-        toPort: this.activeConnection.toPort,
-      });
     }
 
     this.activeConnection = null;
     this._drawConnections();
+  }
+
+  _addConnection(fromNode, fromPort, toNode, toPort) {
+    this.connections = this.connections.filter(
+      (c) => !(c.toNode === toNode && c.toPort === toPort)
+    );
+    const exists = this.connections.some(
+      (c) =>
+        c.fromNode === fromNode &&
+        c.fromPort === fromPort &&
+        c.toNode === toNode &&
+        c.toPort === toPort
+    );
+    if (!exists) {
+      this.connections.push({ fromNode, fromPort, toNode, toPort });
+    }
+    this._drawConnections();
+    this.persistGraph();
   }
 
   _getPortPosition(nodeId, portName, type) {
@@ -583,12 +613,158 @@ export class NodeEditor {
     if (clearStorage && this.persistence?.clear) {
       this.persistence.clear();
     }
+    this.selectedNodeId = null;
+    this._hidePortContextMenu();
   }
 
   _bindPointerEvents() {
-    this.nodeLayer.addEventListener('pointerdown', () => {
+    this.nodeLayer.addEventListener('pointerdown', (event) => {
+      if (!event.target.closest('.node')) {
+        this._clearSelection();
+      }
       this.activeConnection = null;
       this._drawConnections();
     });
+
+    document.addEventListener('pointerdown', (event) => {
+      if (!event.target.closest('.port-context-menu')) {
+        this._hidePortContextMenu();
+      }
+    });
+  }
+
+  _bindKeyboardEvents() {
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'Delete' && this.selectedNodeId) {
+        const active = document.activeElement;
+        if (active && ['INPUT', 'TEXTAREA'].includes(active.tagName)) {
+          return;
+        }
+        event.preventDefault();
+        this._removeNode(this.selectedNodeId);
+      }
+    });
+  }
+
+  _selectNode(nodeId) {
+    if (this.selectedNodeId === nodeId) return;
+    this._clearSelection();
+    const el = this.nodeLayer.querySelector(`.node[data-id="${nodeId}"]`);
+    if (el) {
+      el.classList.add('selected');
+      this.selectedNodeId = nodeId;
+    }
+  }
+
+  _clearSelection() {
+    if (!this.selectedNodeId) return;
+    const el = this.nodeLayer.querySelector(`.node[data-id="${this.selectedNodeId}"]`);
+    if (el) {
+      el.classList.remove('selected');
+    }
+    this.selectedNodeId = null;
+  }
+
+  _removeNode(nodeId) {
+    const node = this.nodes.get(nodeId);
+    if (!node) return;
+    this.nodes.delete(nodeId);
+    const el = this.nodeLayer.querySelector(`.node[data-id="${nodeId}"]`);
+    if (el) {
+      el.remove();
+    }
+    this.connections = this.connections.filter(
+      (connection) => connection.fromNode !== nodeId && connection.toNode !== nodeId
+    );
+    this._drawConnections();
+    if (this.selectedNodeId === nodeId) {
+      this.selectedNodeId = null;
+    }
+    this._hidePortContextMenu();
+    this.persistGraph();
+  }
+
+  _setupPortContextMenu() {
+    const menu = document.createElement('div');
+    menu.className = 'port-context-menu hidden';
+    menu.addEventListener('pointerdown', (event) => event.stopPropagation());
+    menu.addEventListener('contextmenu', (event) => event.preventDefault());
+    this.portMenu = menu;
+    this.nodeLayer.appendChild(menu);
+  }
+
+  _openPortContextMenu(event, { nodeId, portName, portType }) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!this.portMenu) return;
+
+    const compatible = this.library.filter((def) => {
+      if (portType === 'output') {
+        return (def.inputs || []).includes(portName);
+      }
+      return (def.outputs || []).includes(portName);
+    });
+
+    const layerRect = this.nodeLayer.getBoundingClientRect();
+    const portRect = event.currentTarget.getBoundingClientRect();
+    const offsetX = portType === 'output' ? 120 : -220;
+    let x = portRect.left - layerRect.left + offsetX;
+    let y = portRect.top - layerRect.top - 20;
+    x = Math.max(16, Math.min(x, layerRect.width - 220));
+    y = Math.max(16, Math.min(y, layerRect.height - 140));
+
+    this._showPortContextMenu({ x, y, compatible, source: { nodeId, portName, portType } });
+  }
+
+  _showPortContextMenu({ x, y, compatible, source }) {
+    if (!this.portMenu) return;
+    this.portMenu.innerHTML = '';
+
+    const list = document.createElement('div');
+    list.className = 'port-context-options';
+
+    if (!compatible.length) {
+      const empty = document.createElement('div');
+      empty.className = 'port-context-empty';
+      empty.textContent = 'No compatible nodes';
+      list.appendChild(empty);
+    } else {
+      compatible.forEach((def) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = def.label;
+        button.addEventListener('click', () => {
+          const layerRect = this.nodeLayer.getBoundingClientRect();
+          const position = {
+            x: Math.max(16, Math.min(x, layerRect.width - 200)),
+            y: Math.max(16, Math.min(y, layerRect.height - 120)),
+          };
+          const newNode = this._createNode(def, position);
+          if (source.portType === 'output') {
+            const inputName = (def.inputs || []).find((input) => input === source.portName);
+            if (inputName) {
+              this._addConnection(source.nodeId, source.portName, newNode.id, inputName);
+            }
+          } else {
+            const outputName = (def.outputs || []).find((output) => output === source.portName);
+            if (outputName) {
+              this._addConnection(newNode.id, outputName, source.nodeId, source.portName);
+            }
+          }
+          this._hidePortContextMenu();
+        });
+        list.appendChild(button);
+      });
+    }
+
+    this.portMenu.appendChild(list);
+    this.portMenu.style.left = `${x}px`;
+    this.portMenu.style.top = `${y}px`;
+    this.portMenu.classList.remove('hidden');
+  }
+
+  _hidePortContextMenu() {
+    if (!this.portMenu) return;
+    this.portMenu.classList.add('hidden');
   }
 }

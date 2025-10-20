@@ -171,6 +171,11 @@ button.primary:focus-visible {
   user-select: none;
 }
 
+.node.selected {
+  border-color: var(--accent);
+  box-shadow: 0 12px 32px -18px rgba(77, 124, 255, 0.85), 0 0 0 2px rgba(77, 124, 255, 0.25);
+}
+
 .node:focus-visible {
   outline: 2px solid var(--accent);
 }
@@ -226,6 +231,54 @@ button.primary:focus-visible {
 .port .handle.active {
   transform: scale(1.1);
   box-shadow: 0 0 0 4px rgba(77, 124, 255, 0.25);
+}
+
+.port-context-menu {
+  position: absolute;
+  min-width: 200px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.22);
+  padding: 0.35rem;
+  z-index: 4;
+}
+
+.port-context-menu.hidden {
+  display: none;
+}
+
+.port-context-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.port-context-options button {
+  width: 100%;
+  justify-content: flex-start;
+  font-size: 0.9rem;
+  padding: 0.4rem 0.6rem;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+  color: var(--text);
+  transform: none;
+}
+
+.port-context-options button:hover,
+.port-context-options button:focus-visible {
+  background: rgba(77, 124, 255, 0.12);
+  border-radius: 6px;
+  transform: none;
+  box-shadow: none;
+}
+
+.port-context-empty {
+  font-size: 0.85rem;
+  color: var(--muted);
+  padding: 0.4rem 0.5rem;
 }
 
 .dialog-open {
