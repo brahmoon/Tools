@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PowerShell Visual Builder</title>
+    <link rel="stylesheet" href="./ui/editor.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="branding">
+        <div class="logo" aria-hidden="true"></div>
+        <h1>PowerShell Visual Builder</h1>
+      </div>
+      <div class="header-actions">
+        <button id="load-flow" type="button">Load</button>
+        <button id="save-flow" type="button">Save</button>
+        <button id="clear-flow" type="button">Clear</button>
+        <button id="export-script" class="primary" type="button">Export Script</button>
+      </div>
+    </header>
+
+    <div class="app-body">
+      <aside class="palette" id="node-palette" aria-label="Node palette"></aside>
+      <main class="editor" id="editor-area">
+        <canvas id="connection-layer"></canvas>
+        <div id="node-layer" class="node-layer" role="application" aria-label="Node editor"></div>
+      </main>
+    </div>
+
+    <dialog id="property-editor">
+      <form method="dialog" id="property-form">
+        <header>
+          <h2 id="property-title">Node Properties</h2>
+        </header>
+        <div class="property-fields" id="property-fields"></div>
+        <menu class="property-actions">
+          <button type="reset" id="property-cancel">Cancel</button>
+          <button type="submit" class="primary">Save</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <template id="node-template">
+      <div class="node" tabindex="0">
+        <header class="node-header">
+          <span class="node-label"></span>
+          <button class="node-config" title="Edit properties" type="button">⚙</button>
+        </header>
+        <div class="node-ports">
+          <div class="inputs"></div>
+          <div class="outputs"></div>
+        </div>
+      </div>
+    </template>
+
+    <script type="module">
+      import { NodeLibrary } from './core/nodeLibrary.js';
+      import { NodeEditor } from './core/nodeEngine.js';
+      import { loadGraph, saveGraph, clearGraph } from './storage/localStore.js';
+      import { exportScript } from './export/scriptExport.js';
+
+      const paletteEl = document.getElementById('node-palette');
+      const nodeLayer = document.getElementById('node-layer');
+      const connectionLayer = document.getElementById('connection-layer');
+      const propertyDialog = document.getElementById('property-editor');
+      const propertyForm = document.getElementById('property-form');
+      const propertyFields = document.getElementById('property-fields');
+      const nodeTemplate = document.getElementById('node-template');
+
+      const editor = new NodeEditor({
+        paletteEl,
+        nodeLayer,
+        connectionLayer,
+        propertyDialog,
+        propertyForm,
+        propertyFields,
+        nodeTemplate,
+        library: NodeLibrary,
+        onGenerateScript: exportScript,
+        persistence: {
+          load: loadGraph,
+          save: saveGraph,
+          clear: clearGraph,
+        },
+      });
+
+      window.addEventListener('resize', () => editor.resize());
+
+      document.getElementById('export-script').addEventListener('click', () => editor.exportScript());
+      document.getElementById('save-flow').addEventListener('click', () => editor.persistGraph());
+      document.getElementById('load-flow').addEventListener('click', () => editor.restoreGraph());
+      document.getElementById('clear-flow').addEventListener('click', () => editor.clearGraph());
+
+      editor.restoreGraph();
+    </script>
+  </body>
+</html>
