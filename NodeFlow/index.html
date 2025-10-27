@@ -22,7 +22,20 @@
     </header>
 
     <div class="app-body">
-      <aside class="palette" id="node-palette" aria-label="Node palette"></aside>
+      <aside class="palette-shell" aria-label="Node palette">
+        <div class="palette" id="node-palette"></div>
+        <div class="palette-status-bar">
+          <button
+            type="button"
+            id="open-settings"
+            class="status-icon"
+            aria-haspopup="dialog"
+            aria-controls="settings-dialog"
+            aria-label="設定を開く"
+            aria-expanded="false"
+          >⚙</button>
+        </div>
+      </aside>
       <main class="editor" id="editor-area">
         <canvas id="connection-layer"></canvas>
         <div id="node-layer" class="node-layer" role="application" aria-label="Node editor"></div>
@@ -40,6 +53,31 @@
           <button type="submit" class="primary">Save</button>
         </menu>
       </form>
+    </dialog>
+
+    <dialog id="settings-dialog" class="settings-dialog" aria-label="設定">
+      <div class="settings-inner">
+        <header class="settings-header">
+          <h2>設定</h2>
+          <button type="button" id="close-settings" class="settings-close" aria-label="設定を閉じる">
+            ×
+          </button>
+        </header>
+        <div class="settings-content">
+          <div class="settings-group">
+            <span id="theme-toggle-label" class="toggle-field-label">テーマ</span>
+            <label class="toggle-switch" for="theme-toggle">
+              <span class="toggle-text" id="theme-toggle-text">ダークモード</span>
+              <input
+                type="checkbox"
+                id="theme-toggle"
+                aria-labelledby="theme-toggle-label theme-toggle-text"
+              />
+              <span class="toggle-slider" aria-hidden="true"></span>
+            </label>
+          </div>
+        </div>
+      </div>
     </dialog>
 
     <template id="node-template">
@@ -203,6 +241,12 @@
       const duplicateNodeBtn = document.getElementById('duplicate-node');
       const designerStatus = document.getElementById('designer-status');
       const scriptField = document.getElementById('node-script');
+      const openSettingsBtn = document.getElementById('open-settings');
+      const settingsDialog = document.getElementById('settings-dialog');
+      const closeSettingsBtn = document.getElementById('close-settings');
+      const themeToggle = document.getElementById('theme-toggle');
+
+      const THEME_STORAGE_KEY = 'nodeflow.theme';
       const CONSTANT_PLACEHOLDER = '# TODO: set value';
 
       const fields = {
@@ -217,6 +261,87 @@
 
       let originalId = '';
       let designerInitialized = false;
+
+      const applyTheme = (theme) => {
+        const mode = theme === 'dark' ? 'dark' : 'light';
+        document.body.classList.toggle('theme-dark', mode === 'dark');
+        document.body.classList.toggle('theme-light', mode === 'light');
+        document.documentElement.style.setProperty('color-scheme', mode);
+        if (themeToggle) {
+          themeToggle.checked = mode === 'dark';
+        }
+      };
+
+      const detectPreferredTheme = () =>
+        window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+
+      const loadStoredTheme = () => {
+        try {
+          const stored = localStorage.getItem(THEME_STORAGE_KEY);
+          return stored === 'dark' || stored === 'light' ? stored : null;
+        } catch (error) {
+          console.warn('Failed to read theme preference', error);
+          return null;
+        }
+      };
+
+      const persistTheme = (theme) => {
+        try {
+          localStorage.setItem(THEME_STORAGE_KEY, theme);
+        } catch (error) {
+          console.warn('Failed to store theme preference', error);
+        }
+      };
+
+      const initializeTheme = () => {
+        const stored = loadStoredTheme();
+        const initial = stored || detectPreferredTheme();
+        applyTheme(initial);
+      };
+
+      initializeTheme();
+
+      themeToggle?.addEventListener('change', () => {
+        const mode = themeToggle.checked ? 'dark' : 'light';
+        applyTheme(mode);
+        persistTheme(mode);
+      });
+
+      const openSettings = () => {
+        if (!settingsDialog) return;
+        if (typeof settingsDialog.showModal === 'function' && !settingsDialog.open) {
+          settingsDialog.showModal();
+          openSettingsBtn?.setAttribute('aria-expanded', 'true');
+        }
+      };
+
+      const closeSettings = ({ returnFocus = false } = {}) => {
+        if (!settingsDialog) return;
+        if (settingsDialog.open) {
+          settingsDialog.close();
+        }
+        openSettingsBtn?.setAttribute('aria-expanded', 'false');
+        if (returnFocus) {
+          openSettingsBtn?.focus();
+        }
+      };
+
+      openSettingsBtn?.addEventListener('click', () => {
+        openSettings();
+      });
+
+      closeSettingsBtn?.addEventListener('click', () => {
+        closeSettings({ returnFocus: true });
+      });
+
+      settingsDialog?.addEventListener('cancel', (event) => {
+        event.preventDefault();
+        closeSettings({ returnFocus: true });
+      });
+
+      settingsDialog?.addEventListener('close', () => {
+        openSettingsBtn?.setAttribute('aria-expanded', 'false');
+      });
 
       const sanitizeToken = (value) =>
         String(value ?? '')

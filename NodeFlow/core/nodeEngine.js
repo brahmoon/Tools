@@ -821,6 +821,40 @@ export class NodeEditor {
       return;
     }
     try {
+      const previousIds = new Set(this.library.map((def) => def.id));
+      const previousPaletteNodeIds = new Set();
+      const collectPaletteNodeIds = (directory) => {
+        if (!directory || directory.type !== 'directory') return;
+        (directory.children || []).forEach((child) => {
+          if (child.type === 'node') {
+            previousPaletteNodeIds.add(child.nodeId);
+          } else if (child.type === 'directory') {
+            collectPaletteNodeIds(child);
+          }
+        });
+      };
+      collectPaletteNodeIds(this.paletteState);
+      const locateNewPaletteNode = () => {
+        const stack = [this.paletteState];
+        while (stack.length) {
+          const directory = stack.shift();
+          if (!directory || directory.type !== 'directory') {
+            continue;
+          }
+          const candidate = (directory.children || []).find(
+            (child) => child.type === 'node' && !previousPaletteNodeIds.has(child.nodeId)
+          );
+          if (candidate) {
+            return { item: candidate, parent: directory };
+          }
+          (directory.children || []).forEach((child) => {
+            if (child.type === 'directory') {
+              stack.push(child);
+            }
+          });
+        }
+        return null;
+      };
       const result = this.onDuplicatePaletteNode({
         definitionId,
         paletteItemId,
@@ -847,7 +881,45 @@ export class NodeEditor {
           null;
       }
       if (!newDefinitionId) {
+        const diff = this.library.filter((definition) => !previousIds.has(definition.id));
+        if (diff.length === 1) {
+          newDefinitionId = diff[0].id;
+          providedDefinition = diff[0];
+        }
+      }
+
+      if (!newDefinitionId) {
         return;
+      }
+
+      if (previousIds.has(newDefinitionId)) {
+        const diff = this.library.filter((definition) => !previousIds.has(definition.id));
+        if (diff.length === 1) {
+          newDefinitionId = diff[0].id;
+          providedDefinition = providedDefinition || diff[0];
+        } else {
+          const candidate = diff.find((definition) => definition.id !== definitionId);
+          if (candidate) {
+            newDefinitionId = candidate.id;
+            providedDefinition = providedDefinition || candidate;
+          }
+        }
+      }
+
+      if (!providedDefinition) {
+        providedDefinition = this.library.find((definition) => definition.id === newDefinitionId);
+      }
+
+      if (!providedDefinition) {
+        const diff = this.library.filter((definition) => !previousIds.has(definition.id));
+        if (diff.length === 1) {
+          providedDefinition = diff[0];
+          newDefinitionId = diff[0].id;
+        }
+      }
+
+      if (providedDefinition && providedDefinition.id !== newDefinitionId) {
+        newDefinitionId = providedDefinition.id;
       }
 
       if (providedDefinition && providedDefinition.id === newDefinitionId) {
@@ -858,6 +930,42 @@ export class NodeEditor {
           const updated = [...this.library];
           updated[existingIndex] = providedDefinition;
           this.library = updated;
+        }
+      }
+
+      this._ensurePaletteIntegrity();
+
+      const newPaletteNode = locateNewPaletteNode();
+      if (newPaletteNode?.item) {
+        newDefinitionId = newPaletteNode.item.nodeId;
+        if (!providedDefinition) {
+          providedDefinition = this.library.find((definition) => definition.id === newDefinitionId);
+        }
+        const destinationParent = this._findDirectoryById(parentId) || this.paletteState;
+        const sourceParent = newPaletteNode.parent || destinationParent;
+        if (sourceParent && Array.isArray(sourceParent.children)) {
+          const currentIndex = sourceParent.children.findIndex((child) => child.id === newPaletteNode.item.id);
+          let extracted = newPaletteNode.item;
+          if (currentIndex !== -1) {
+            [extracted] = sourceParent.children.splice(currentIndex, 1);
+          }
+          if (!destinationParent.children) {
+            destinationParent.children = [];
+          }
+          let insertionIndexValue =
+            typeof insertIndex === 'number' && insertIndex >= 0
+              ? Math.min(insertIndex + 1, destinationParent.children.length)
+              : destinationParent.children.length;
+          if (sourceParent === destinationParent && typeof insertIndex === 'number' && currentIndex !== -1) {
+            if (currentIndex < insertionIndexValue) {
+              insertionIndexValue = Math.max(0, insertionIndexValue - 1);
+            }
+          }
+          insertionIndexValue = Math.max(0, Math.min(insertionIndexValue, destinationParent.children.length));
+          destinationParent.children.splice(insertionIndexValue, 0, extracted);
+          this._savePaletteState();
+          this._renderPalette();
+          return;
         }
       }
 
@@ -950,44 +1058,72 @@ export class NodeEditor {
     event.stopPropagation();
 
     const nodeButton = event.target.closest('.palette-node');
-    if (!nodeButton) {
+    if (nodeButton) {
+      const paletteItemId = nodeButton.dataset.id;
+      const definitionId = nodeButton.dataset.nodeId;
+      if (!paletteItemId || !definitionId) {
+        this._hidePaletteContextMenu();
+        return;
+      }
+
+      const parentContainer = nodeButton.closest('.palette-children');
+      const parentId = parentContainer?.dataset.parentId || this.paletteState.id;
+      const parentDirectory = this._findDirectoryById(parentId) || this.paletteState;
+      const insertIndex = (parentDirectory.children || []).findIndex(
+        (child) => child.id === paletteItemId
+      );
+
+      const options = [
+        {
+          label: 'ノードを複製',
+          action: () =>
+            this._duplicatePaletteNode({
+              paletteItemId,
+              definitionId,
+              parentId,
+              insertIndex,
+            }),
+        },
+        {
+          label: 'ノードを削除',
+          action: () =>
+            this._removePaletteNode({
+              paletteItemId,
+              definitionId,
+            }),
+          variant: 'danger',
+        },
+      ];
+
+      this._showPaletteContextMenu({
+        x: event.clientX,
+        y: event.clientY,
+        options,
+      });
+      return;
+    }
+
+    const dropIndicator = event.target.closest('.palette-drop-indicator');
+    if (dropIndicator) {
       this._hidePaletteContextMenu();
       return;
     }
 
-    const paletteItemId = nodeButton.dataset.id;
-    const definitionId = nodeButton.dataset.nodeId;
-    if (!paletteItemId || !definitionId) {
-      this._hidePaletteContextMenu();
-      return;
+    const container = event.target.closest('.palette-children');
+    const directoryElement = event.target.closest('.palette-directory');
+    let parentId = container?.dataset.parentId || directoryElement?.dataset.id || null;
+    if (!parentId) {
+      const rootElement = event.target.closest('.palette-root');
+      parentId = rootElement?.dataset?.id || this.paletteState.id;
     }
-
-    const parentContainer = nodeButton.closest('.palette-children');
-    const parentId = parentContainer?.dataset.parentId || this.paletteState.id;
-    const parentDirectory = this._findDirectoryById(parentId) || this.paletteState;
-    const insertIndex = (parentDirectory.children || []).findIndex(
-      (child) => child.id === paletteItemId
-    );
+    if (!parentId) {
+      parentId = this.paletteState.id;
+    }
 
     const options = [
       {
-        label: 'ノードを複製',
-        action: () =>
-          this._duplicatePaletteNode({
-            paletteItemId,
-            definitionId,
-            parentId,
-            insertIndex,
-          }),
-      },
-      {
-        label: 'ノードを削除',
-        action: () =>
-          this._removePaletteNode({
-            paletteItemId,
-            definitionId,
-          }),
-        variant: 'danger',
+        label: 'ディレクトリを作成',
+        action: () => this._promptCreateDirectory(parentId),
       },
     ];
 
