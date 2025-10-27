@@ -208,18 +208,6 @@ export class NodeEditor {
       this._openPropertyEditor(node.id);
     });
 
-    const designerBtn = el.querySelector('.node-open-designer');
-    if (designerBtn) {
-      if (this.onEditCustomNode && node.definition.specId) {
-        designerBtn.addEventListener('click', (event) => {
-          event.stopPropagation();
-          this.onEditCustomNode?.(node.definition.specId);
-        });
-      } else {
-        designerBtn.remove();
-      }
-    }
-
     const inputContainer = el.querySelector('.inputs');
     (node.definition.inputs || []).forEach((name) => {
       const port = this._createPort('input', name, node.id);

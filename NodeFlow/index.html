@@ -46,14 +46,7 @@
       <div class="node" tabindex="0">
         <header class="node-header">
           <span class="node-label"></span>
-          <div class="node-actions">
-            <button
-              class="node-open-designer"
-              title="カスタムノードエディタを開く"
-              type="button"
-            >&lt;&gt;</button>
-            <button class="node-config" title="Edit properties" type="button">⚙</button>
-          </div>
+          <button class="node-config" title="Edit properties" type="button">⚙</button>
         </header>
         <div class="node-ports">
           <div class="inputs"></div>
@@ -352,7 +345,6 @@
         document.body.classList.add('designer-open');
         renderCustomNodeList();
         setTimeout(() => fields.label.focus(), 50);
-        setTimeout(() => editor?.resize(), 260);
       };
 
       const openDesignerForSpec = (specId) => {
@@ -372,7 +364,6 @@
         designerEl.classList.remove('open');
         designerEl.setAttribute('aria-hidden', 'true');
         document.body.classList.remove('designer-open');
-        setTimeout(() => editor?.resize(), 260);
       };
 
       editor = new NodeEditor({
