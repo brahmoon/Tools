@@ -46,14 +46,7 @@
       <div class="node" tabindex="0">
         <header class="node-header">
           <span class="node-label"></span>
-          <div class="node-actions">
-            <button
-              class="node-open-designer"
-              title="カスタムノードエディタを開く"
-              type="button"
-            >&lt;&gt;</button>
-            <button class="node-config" title="Edit properties" type="button">⚙</button>
-          </div>
+          <button class="node-config" title="Edit properties" type="button">⚙</button>
         </header>
         <div class="node-ports">
           <div class="inputs"></div>
@@ -250,17 +243,6 @@
           .map((constant) => `${constant.key} | ${constant.default}`)
           .join('\n');
 
-      const cloneSpec = (spec) => {
-        if (!spec) return null;
-        return {
-          ...spec,
-          inputs: [...(spec.inputs || [])],
-          outputs: [...(spec.outputs || [])],
-          constants: (spec.constants || []).map((constant) => ({ ...constant })),
-          script: spec.script || '',
-        };
-      };
-
       const loadSpecIntoForm = (spec, { fromSample = false } = {}) => {
         originalId = fromSample ? '' : spec.id || '';
         fields.label.value = spec.label || '';
@@ -363,23 +345,11 @@
         document.body.classList.add('designer-open');
         renderCustomNodeList();
         setTimeout(() => fields.label.focus(), 50);
-        setTimeout(() => editor?.resize(), 260);
       };
 
-      const openDesignerForSpec = (specId, fallbackSpec) => {
+      const openDesignerForSpec = (specId) => {
         ensureDesignerInitialized();
-        const findSpec = () => customSpecs.find((item) => item.id === specId);
-        let spec = findSpec();
-
-        if (!spec && fallbackSpec && fallbackSpec.id === specId) {
-          spec = cloneSpec(fallbackSpec);
-        }
-
-        if (!spec) {
-          refreshLibrary({ persist: false });
-          spec = findSpec();
-        }
-
+        const spec = customSpecs.find((item) => item.id === specId);
         if (spec) {
           loadSpecIntoForm(spec);
           designerStatus.textContent = `編集中: ${spec.id}`;
@@ -394,7 +364,6 @@
         designerEl.classList.remove('open');
         designerEl.setAttribute('aria-hidden', 'true');
         document.body.classList.remove('designer-open');
-        setTimeout(() => editor?.resize(), 260);
       };
 
       editor = new NodeEditor({

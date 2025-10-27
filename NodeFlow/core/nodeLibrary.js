@@ -228,7 +228,6 @@ export const specsToDefinitions = (specs) =>
         })),
         script: createScriptFunction(normalized.script),
         specId: normalized.id,
-        sourceSpec: normalized,
       };
     })
     .filter((definition, index, self) =>

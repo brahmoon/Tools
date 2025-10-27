@@ -208,18 +208,6 @@ export class NodeEditor {
       this._openPropertyEditor(node.id);
     });
 
-    const designerBtn = el.querySelector('.node-open-designer');
-    if (designerBtn) {
-      if (this.onEditCustomNode && node.definition.specId) {
-        designerBtn.addEventListener('click', (event) => {
-          event.stopPropagation();
-          this.onEditCustomNode?.(node.definition.specId, node.definition.sourceSpec);
-        });
-      } else {
-        designerBtn.remove();
-      }
-    }
-
     const inputContainer = el.querySelector('.inputs');
     (node.definition.inputs || []).forEach((name) => {
       const port = this._createPort('input', name, node.id);
@@ -592,7 +580,7 @@ export class NodeEditor {
           event.preventDefault();
           this.propertyDialog.close();
           this.propertyForm.reset();
-          this.onEditCustomNode?.(node.definition.specId, node.definition.sourceSpec);
+          this.onEditCustomNode?.(node.definition.specId);
         });
         header.appendChild(editButton);
       }
