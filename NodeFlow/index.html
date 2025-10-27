@@ -13,6 +13,7 @@
         <h1>PowerShell Visual Builder</h1>
       </div>
       <div class="header-actions">
+        <button id="open-designer" type="button">Custom Nodes</button>
         <button id="load-flow" type="button">Load</button>
         <button id="save-flow" type="button">Save</button>
         <button id="clear-flow" type="button">Clear</button>
@@ -54,8 +55,97 @@
       </div>
     </template>
 
+    <aside id="node-designer" class="designer" aria-hidden="true">
+      <div class="designer-panel">
+        <header class="designer-header">
+          <div>
+            <h2>カスタムノードビルダー</h2>
+            <p class="designer-caption">
+              ノードの入出力ポートとスクリプトを定義し、ブラウザのストレージに保存できます。
+            </p>
+          </div>
+          <button type="button" id="close-designer" class="designer-close" aria-label="Close designer">
+            ×
+          </button>
+        </header>
+        <div class="designer-content">
+          <section class="designer-sidebar">
+            <div class="designer-section">
+              <div class="designer-section-header">
+                <h3>保存済みノード</h3>
+                <button type="button" id="create-node" class="small-button">新規</button>
+              </div>
+              <div id="custom-node-list" class="designer-list" role="list"></div>
+            </div>
+            <div class="designer-section">
+              <h3>サンプル</h3>
+              <p class="designer-hint">サンプルを読み込むとフォームに内容がコピーされます。</p>
+              <div id="sample-node-list" class="designer-list" role="list"></div>
+            </div>
+          </section>
+          <section class="designer-form">
+            <form id="custom-node-form" autocomplete="off">
+              <div class="field-group">
+                <label for="node-label">表示名</label>
+                <input id="node-label" name="label" type="text" placeholder="例: ファイル読込" required />
+              </div>
+              <div class="field-grid">
+                <label>
+                  ノードID
+                  <input id="node-id" name="id" type="text" placeholder="例: file_loader" />
+                </label>
+                <label>
+                  カテゴリ
+                  <input id="node-category" name="category" type="text" placeholder="Custom" />
+                </label>
+              </div>
+              <div class="field-group">
+                <label for="node-inputs">入力ポート（1行につき1件）</label>
+                <textarea id="node-inputs" name="inputs" rows="3" placeholder="InputValue"></textarea>
+              </div>
+              <div class="field-group">
+                <label for="node-outputs">出力ポート（1行につき1件）</label>
+                <textarea id="node-outputs" name="outputs" rows="3" placeholder="Result"></textarea>
+              </div>
+              <div class="field-group">
+                <label for="node-constants">定数入力（ key | 値 ）</label>
+                <textarea
+                  id="node-constants"
+                  name="constants"
+                  rows="4"
+                  placeholder="threshold | # TODO: set value"
+                ></textarea>
+              </div>
+              <div class="field-group">
+                <label for="node-script">スクリプト</label>
+                <textarea
+                  id="node-script"
+                  name="script"
+                  class="code-area"
+                  rows="12"
+                  placeholder="# {{input.Value}} や {{config.threshold}} のようなプレースホルダーを使用できます。"
+                ></textarea>
+              </div>
+              <p id="designer-status" class="designer-status" role="status" aria-live="polite"></p>
+              <div class="designer-actions">
+                <button type="submit" class="primary">保存</button>
+                <button type="button" id="reset-form">リセット</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      </div>
+    </aside>
+
     <script type="module">
-      import { NodeLibrary } from './core/nodeLibrary.js';
+      import {
+        listCustomNodeSpecs,
+        saveCustomNodeSpec,
+        deleteCustomNodeSpec,
+        specsToDefinitions,
+        SAMPLE_NODE_TEMPLATES,
+        createEmptySpec,
+      } from './core/nodeLibrary.js';
       import { NodeEditor } from './core/nodeEngine.js';
       import { loadGraph, saveGraph, clearGraph } from './storage/localStore.js';
       import { exportScript } from './export/scriptExport.js';
@@ -68,7 +158,215 @@
       const propertyFields = document.getElementById('property-fields');
       const nodeTemplate = document.getElementById('node-template');
 
-      const editor = new NodeEditor({
+      let customSpecs = listCustomNodeSpecs();
+      let editor;
+
+      const showToast = (message) => {
+        if (!message) return;
+        const div = document.createElement('div');
+        div.textContent = message;
+        div.className = 'toast';
+        document.body.appendChild(div);
+        requestAnimationFrame(() => {
+          div.classList.add('visible');
+        });
+        setTimeout(() => {
+          div.classList.remove('visible');
+          setTimeout(() => div.remove(), 240);
+        }, 1800);
+      };
+
+      const refreshLibrary = ({ persist = true } = {}) => {
+        customSpecs = listCustomNodeSpecs();
+        editor.setLibrary(specsToDefinitions(customSpecs), { persist });
+        renderCustomNodeList();
+      };
+
+      const designerEl = document.getElementById('node-designer');
+      const openDesignerBtn = document.getElementById('open-designer');
+      const closeDesignerBtn = document.getElementById('close-designer');
+      const newNodeBtn = document.getElementById('create-node');
+      const customListEl = document.getElementById('custom-node-list');
+      const sampleListEl = document.getElementById('sample-node-list');
+      const designerForm = document.getElementById('custom-node-form');
+      const resetFormBtn = document.getElementById('reset-form');
+      const designerStatus = document.getElementById('designer-status');
+      const scriptField = document.getElementById('node-script');
+      const CONSTANT_PLACEHOLDER = '# TODO: set value';
+
+      const fields = {
+        id: document.getElementById('node-id'),
+        label: document.getElementById('node-label'),
+        category: document.getElementById('node-category'),
+        inputs: document.getElementById('node-inputs'),
+        outputs: document.getElementById('node-outputs'),
+        constants: document.getElementById('node-constants'),
+        script: scriptField,
+      };
+
+      let originalId = '';
+      let designerInitialized = false;
+
+      const sanitizeToken = (value) =>
+        String(value ?? '')
+          .trim()
+          .replace(/\s+/g, '_')
+          .replace(/[^A-Za-z0-9_]/g, '_');
+
+      const parsePortList = (raw) =>
+        String(raw ?? '')
+          .split(/\r?\n/)
+          .map((line) => sanitizeToken(line))
+          .filter((line, index, self) => line && self.indexOf(line) === index);
+
+      const parseConstants = (raw) =>
+        String(raw ?? '')
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => {
+            const parts = line.split('|').map((part) => part.trim());
+            const key = sanitizeToken(parts[0]);
+            if (!key) return null;
+            const defaultValue =
+              parts.length >= 3
+                ? parts[2]
+                : parts[1]
+                ? parts[1]
+                : CONSTANT_PLACEHOLDER;
+            return { key, default: defaultValue || CONSTANT_PLACEHOLDER };
+          })
+          .filter((constant, index, self) => constant && self.findIndex((item) => item.key === constant.key) === index);
+
+      const formatConstants = (constants) =>
+        (constants || [])
+          .map((constant) => `${constant.key} | ${constant.default}`)
+          .join('\n');
+
+      const loadSpecIntoForm = (spec, { fromSample = false } = {}) => {
+        originalId = fromSample ? '' : spec.id || '';
+        fields.label.value = spec.label || '';
+        fields.id.value = fromSample ? '' : spec.id || '';
+        fields.category.value = fromSample ? 'Custom' : spec.category || 'Custom';
+        fields.inputs.value = (spec.inputs || []).join('\n');
+        fields.outputs.value = (spec.outputs || []).join('\n');
+        fields.constants.value = formatConstants(spec.constants || []);
+        fields.script.value = spec.script || '';
+        designerStatus.textContent = fromSample
+          ? 'サンプルノードを読み込みました。編集して保存するとカスタムノードとして登録されます。'
+          : spec.id
+          ? `編集中: ${spec.id}`
+          : '新しいノードを作成しています。';
+      };
+
+      const renderCustomNodeList = () => {
+        customListEl.innerHTML = '';
+        if (!customSpecs.length) {
+          const empty = document.createElement('p');
+          empty.className = 'designer-empty';
+          empty.textContent = 'まだカスタムノードがありません。';
+          customListEl.appendChild(empty);
+          return;
+        }
+        customSpecs.forEach((spec) => {
+          const item = document.createElement('div');
+          item.className = 'designer-list-item';
+          const editButton = document.createElement('button');
+          editButton.type = 'button';
+          editButton.className = 'designer-link';
+          editButton.textContent = spec.label;
+          editButton.addEventListener('click', () => loadSpecIntoForm(spec));
+          const meta = document.createElement('span');
+          meta.className = 'designer-meta';
+          meta.textContent = spec.category || 'Custom';
+          const removeButton = document.createElement('button');
+          removeButton.type = 'button';
+          removeButton.className = 'designer-remove';
+          removeButton.textContent = '削除';
+          removeButton.addEventListener('click', (event) => {
+            event.stopPropagation();
+            if (confirm(`${spec.label} を削除しますか？`)) {
+              deleteCustomNodeSpec(spec.id);
+              showToast('カスタムノードを削除しました。');
+              refreshLibrary();
+              if (customSpecs.length) {
+                loadSpecIntoForm(customSpecs[0]);
+              } else {
+                loadSpecIntoForm(createEmptySpec());
+              }
+            }
+          });
+          item.append(editButton, meta, removeButton);
+          customListEl.appendChild(item);
+        });
+      };
+
+      const renderSampleList = () => {
+        sampleListEl.innerHTML = '';
+        SAMPLE_NODE_TEMPLATES.forEach((sample) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'designer-sample';
+          button.innerHTML = `<strong>${sample.label}</strong><span>${sample.description}</span>`;
+          button.addEventListener('click', () =>
+            loadSpecIntoForm(
+              {
+                ...sample,
+                id: '',
+                label: sample.label.replace(/^Sample:\s*/i, ''),
+                category: 'Custom',
+                inputs: [...(sample.inputs || [])],
+                outputs: [...(sample.outputs || [])],
+                constants: (sample.constants || []).map((constant) => ({ ...constant })),
+                script: sample.script,
+              },
+              { fromSample: true }
+            )
+          );
+          sampleListEl.appendChild(button);
+        });
+      };
+
+      const ensureDesignerInitialized = () => {
+        if (designerInitialized) return;
+        renderSampleList();
+        if (customSpecs.length) {
+          loadSpecIntoForm(customSpecs[0]);
+        } else {
+          loadSpecIntoForm(createEmptySpec());
+        }
+        designerInitialized = true;
+      };
+
+      const openDesigner = () => {
+        ensureDesignerInitialized();
+        designerEl.classList.add('open');
+        designerEl.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('designer-open');
+        renderCustomNodeList();
+        setTimeout(() => fields.label.focus(), 50);
+      };
+
+      const openDesignerForSpec = (specId) => {
+        ensureDesignerInitialized();
+        const spec = customSpecs.find((item) => item.id === specId);
+        if (spec) {
+          loadSpecIntoForm(spec);
+          designerStatus.textContent = `編集中: ${spec.id}`;
+        } else {
+          loadSpecIntoForm(createEmptySpec());
+          designerStatus.textContent = '指定されたカスタムノードが見つかりません。';
+        }
+        openDesigner();
+      };
+
+      const closeDesigner = () => {
+        designerEl.classList.remove('open');
+        designerEl.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('designer-open');
+      };
+
+      editor = new NodeEditor({
         paletteEl,
         nodeLayer,
         connectionLayer,
@@ -76,8 +374,9 @@
         propertyForm,
         propertyFields,
         nodeTemplate,
-        library: NodeLibrary,
+        library: specsToDefinitions(customSpecs),
         onGenerateScript: exportScript,
+        onEditCustomNode: openDesignerForSpec,
         persistence: {
           load: loadGraph,
           save: saveGraph,
@@ -91,6 +390,63 @@
       document.getElementById('save-flow').addEventListener('click', () => editor.persistGraph());
       document.getElementById('load-flow').addEventListener('click', () => editor.restoreGraph());
       document.getElementById('clear-flow').addEventListener('click', () => editor.clearGraph());
+
+      openDesignerBtn.addEventListener('click', openDesigner);
+      closeDesignerBtn.addEventListener('click', closeDesigner);
+      window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && designerEl.classList.contains('open')) {
+          closeDesigner();
+        }
+      });
+
+      newNodeBtn.addEventListener('click', () => {
+        loadSpecIntoForm(createEmptySpec());
+        designerStatus.textContent = '新しいノードを作成しています。';
+      });
+
+      resetFormBtn.addEventListener('click', () => {
+        loadSpecIntoForm(createEmptySpec());
+        designerStatus.textContent = '入力をリセットしました。';
+      });
+
+      scriptField.addEventListener('keydown', (event) => {
+        if (event.key === 'Tab') {
+          event.preventDefault();
+          const { selectionStart, selectionEnd, value } = scriptField;
+          const insertion = '  ';
+          scriptField.value = `${value.slice(0, selectionStart)}${insertion}${value.slice(selectionEnd)}`;
+          const caret = selectionStart + insertion.length;
+          scriptField.selectionStart = caret;
+          scriptField.selectionEnd = caret;
+        }
+      });
+
+      designerForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const label = fields.label.value.trim();
+        let id = fields.id.value.trim();
+        if (!id) {
+          id = originalId || sanitizeToken(label).toLowerCase();
+        }
+        if (!id) {
+          id = `custom_node_${Date.now()}`;
+        }
+        const spec = {
+          id,
+          label: label || 'Untitled node',
+          category: fields.category.value.trim() || 'Custom',
+          inputs: parsePortList(fields.inputs.value),
+          outputs: parsePortList(fields.outputs.value),
+          constants: parseConstants(fields.constants.value),
+          script: fields.script.value.replace(/\r\n/g, '\n'),
+        };
+        const saved = saveCustomNodeSpec(spec);
+        showToast('カスタムノードを保存しました (ローカルストレージ)。');
+        refreshLibrary();
+        loadSpecIntoForm(saved);
+      });
+
+      renderCustomNodeList();
 
       editor.restoreGraph();
     </script>
