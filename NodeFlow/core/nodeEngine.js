@@ -208,6 +208,18 @@ export class NodeEditor {
       this._openPropertyEditor(node.id);
     });
 
+    const designerBtn = el.querySelector('.node-open-designer');
+    if (designerBtn) {
+      if (this.onEditCustomNode && node.definition.specId) {
+        designerBtn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          this.onEditCustomNode?.(node.definition.specId, node.definition.sourceSpec);
+        });
+      } else {
+        designerBtn.remove();
+      }
+    }
+
     const inputContainer = el.querySelector('.inputs');
     (node.definition.inputs || []).forEach((name) => {
       const port = this._createPort('input', name, node.id);
@@ -270,7 +282,11 @@ export class NodeEditor {
   }
 
   _startDrag(event, nodeId) {
-    if (event.target.closest('.handle') || event.target.classList.contains('node-config')) {
+    if (
+      event.target.closest('.handle') ||
+      event.target.classList.contains('node-config') ||
+      event.target.closest('.node-open-designer')
+    ) {
       return;
     }
     const node = this.nodes.get(nodeId);
@@ -580,7 +596,7 @@ export class NodeEditor {
           event.preventDefault();
           this.propertyDialog.close();
           this.propertyForm.reset();
-          this.onEditCustomNode?.(node.definition.specId);
+          this.onEditCustomNode?.(node.definition.specId, node.definition.sourceSpec);
         });
         header.appendChild(editButton);
       }
