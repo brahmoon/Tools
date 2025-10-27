@@ -309,11 +309,58 @@ button.primary:focus-visible {
   padding: 1rem 1.25rem;
 }
 
-.property-fields label {
+.property-constants-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.property-constants-title {
+  font-weight: 600;
+}
+
+.property-edit-spec {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--accent);
+  border-radius: 6px;
+  font-family: 'Fira Code', 'SFMono-Regular', ui-monospace, monospace;
+  font-size: 0.85rem;
+  padding: 0.2rem 0.5rem;
+  line-height: 1;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  cursor: pointer;
+}
+
+.property-edit-spec:hover,
+.property-edit-spec:focus-visible {
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--accent);
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.property-fields label.property-field {
   display: grid;
-  gap: 0.35rem;
+  grid-template-columns: minmax(80px, max-content) 1fr;
+  align-items: center;
+  gap: 0.75rem;
   font-size: 0.9rem;
   color: var(--muted);
+}
+
+.property-field-key {
+  font-weight: 600;
+  font-family: 'Fira Code', 'SFMono-Regular', ui-monospace, monospace;
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--accent-dark, #1d4ed8);
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+}
+
+.property-field-input {
+  width: 100%;
 }
 
 .property-fields input,

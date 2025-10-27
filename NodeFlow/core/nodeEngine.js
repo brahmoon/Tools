@@ -40,6 +40,7 @@ export class NodeEditor {
     nodeTemplate,
     library,
     onGenerateScript,
+    onEditCustomNode,
     persistence,
   }) {
     this.paletteEl = paletteEl;
@@ -51,11 +52,14 @@ export class NodeEditor {
     this.nodeTemplate = nodeTemplate;
     this.library = [];
     this.onGenerateScript = onGenerateScript;
+    this.onEditCustomNode = onEditCustomNode;
     this.persistence = persistence;
 
     this.nodes = new Map();
     this.connections = [];
     this.activeConnection = null;
+    this.connectionPaths = [];
+    this.selectedConnection = null;
     this.draggedNode = null;
     this.dragOffset = { x: 0, y: 0 };
     this.nodeCount = 0;
@@ -122,6 +126,10 @@ export class NodeEditor {
         : [];
       return fromOutputs.includes(connection.fromPort) && toInputs.includes(connection.toPort);
     });
+
+    if (this.selectedConnection && !this.connections.includes(this.selectedConnection)) {
+      this._clearConnectionSelection({ redraw: false });
+    }
 
     this._redrawNodes();
     this._drawConnections();
@@ -414,6 +422,9 @@ export class NodeEditor {
     this.connections = this.connections.filter(
       (c) => !(c.toNode === toNode && c.toPort === toPort)
     );
+    if (this.selectedConnection && !this.connections.includes(this.selectedConnection)) {
+      this._clearConnectionSelection({ redraw: false });
+    }
     const exists = this.connections.some(
       (c) =>
         c.fromNode === fromNode &&
@@ -445,31 +456,33 @@ export class NodeEditor {
   _drawConnections() {
     const { width, height } = this.connectionLayer;
     this.ctx.clearRect(0, 0, width, height);
-    const drawCurve = (start, end, active = false) => {
-      if (!start || !end) return;
-      this.ctx.beginPath();
+    this.ctx.lineCap = 'round';
+    this.ctx.lineJoin = 'round';
+
+    this.connectionPaths = [];
+
+    const createPath = (start, end) => {
+      if (!start || !end) return null;
+      const path = new Path2D();
       const cpOffset = Math.abs(end.x - start.x) * 0.5 + 60;
-      this.ctx.moveTo(start.x, start.y);
-      this.ctx.bezierCurveTo(
-        start.x + cpOffset,
-        start.y,
-        end.x - cpOffset,
-        end.y,
-        end.x,
-        end.y
-      );
-      this.ctx.strokeStyle = active ? 'rgba(77, 124, 255, 0.6)' : 'rgba(59, 130, 246, 0.8)';
-      this.ctx.lineWidth = active ? 3 : 2.2;
-      this.ctx.shadowColor = 'rgba(59, 130, 246, 0.35)';
-      this.ctx.shadowBlur = active ? 14 : 6;
-      this.ctx.stroke();
-      this.ctx.shadowBlur = 0;
+      path.moveTo(start.x, start.y);
+      path.bezierCurveTo(start.x + cpOffset, start.y, end.x - cpOffset, end.y, end.x, end.y);
+      return path;
     };
 
     this.connections.forEach((connection) => {
       const start = this._getPortPosition(connection.fromNode, connection.fromPort, 'output');
       const end = this._getPortPosition(connection.toNode, connection.toPort, 'input');
-      drawCurve(start, end, false);
+      const path = createPath(start, end);
+      if (!path) return;
+      const selected = this.selectedConnection === connection;
+      this.ctx.strokeStyle = selected ? 'rgba(249, 115, 22, 0.9)' : 'rgba(59, 130, 246, 0.8)';
+      this.ctx.lineWidth = selected ? 3.2 : 2.2;
+      this.ctx.shadowColor = selected ? 'rgba(249, 115, 22, 0.4)' : 'rgba(59, 130, 246, 0.35)';
+      this.ctx.shadowBlur = selected ? 12 : 6;
+      this.ctx.stroke(path);
+      this.ctx.shadowBlur = 0;
+      this.connectionPaths.push({ path, connection });
     });
 
     if (this.activeConnection) {
@@ -484,8 +497,59 @@ export class NodeEditor {
         const endPos = this._getPortPosition(toNode, toPort, 'input');
         if (endPos) target = endPos;
       }
-      drawCurve(origin, target, true);
+      const path = createPath(origin, target);
+      if (path) {
+        this.ctx.strokeStyle = 'rgba(77, 124, 255, 0.6)';
+        this.ctx.lineWidth = 3;
+        this.ctx.shadowColor = 'rgba(77, 124, 255, 0.4)';
+        this.ctx.shadowBlur = 14;
+        this.ctx.stroke(path);
+        this.ctx.shadowBlur = 0;
+      }
     }
+  }
+
+  _hitTestConnection(clientX, clientY) {
+    if (!this.connectionPaths.length) return null;
+    const rect = this.connectionLayer.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    const previousWidth = this.ctx.lineWidth;
+    this.ctx.lineWidth = 6;
+    for (let index = this.connectionPaths.length - 1; index >= 0; index -= 1) {
+      const { path, connection } = this.connectionPaths[index];
+      if (this.ctx.isPointInStroke(path, x, y)) {
+        this.ctx.lineWidth = previousWidth;
+        return connection;
+      }
+    }
+    this.ctx.lineWidth = previousWidth;
+    return null;
+  }
+
+  _selectConnection(connection) {
+    if (!connection) return;
+    if (this.selectedConnection === connection) return;
+    this._clearNodeSelection();
+    this.selectedConnection = connection;
+    this._drawConnections();
+  }
+
+  _clearConnectionSelection({ redraw = true } = {}) {
+    if (!this.selectedConnection) return;
+    this.selectedConnection = null;
+    if (redraw) {
+      this._drawConnections();
+    }
+  }
+
+  _removeSelectedConnection() {
+    if (!this.selectedConnection) return;
+    const target = this.selectedConnection;
+    this.connections = this.connections.filter((connection) => connection !== target);
+    this._clearConnectionSelection({ redraw: false });
+    this._drawConnections();
+    this.persistGraph();
   }
 
   _openPropertyEditor(nodeId) {
@@ -496,13 +560,44 @@ export class NodeEditor {
     this.propertyDialog.querySelector('#property-title').textContent = `${node.definition.label} settings`;
 
     const controls = node.definition.controls || [];
+    const supportsDesigner = Boolean(this.onEditCustomNode) && Boolean(node.definition.specId);
+
+    if (controls.length) {
+      const header = document.createElement('div');
+      header.className = 'property-constants-header';
+      const title = document.createElement('span');
+      title.className = 'property-constants-title';
+      title.textContent = '定数 (Key / Value)';
+      header.appendChild(title);
+      if (supportsDesigner) {
+        const editButton = document.createElement('button');
+        editButton.type = 'button';
+        editButton.className = 'property-edit-spec';
+        editButton.setAttribute('title', 'カスタムノードを編集');
+        editButton.setAttribute('aria-label', 'カスタムノードを編集');
+        editButton.textContent = '<>';
+        editButton.addEventListener('click', (event) => {
+          event.preventDefault();
+          this.propertyDialog.close();
+          this.propertyForm.reset();
+          this.onEditCustomNode?.(node.definition.specId);
+        });
+        header.appendChild(editButton);
+      }
+      this.propertyFields.appendChild(header);
+    }
+
     controls.forEach((control) => {
       const field = document.createElement('label');
-      field.textContent = control.label;
+      field.className = 'property-field';
+      const keyLabel = document.createElement('span');
+      keyLabel.className = 'property-field-key';
+      keyLabel.textContent = control.displayKey || control.key;
       let input;
       switch (control.type) {
         case 'select':
           input = document.createElement('select');
+          input.className = 'property-field-input select';
           (control.options || []).forEach((option) => {
             const opt = document.createElement('option');
             opt.value = option.value;
@@ -512,15 +607,21 @@ export class NodeEditor {
           break;
         case 'textarea':
           input = document.createElement('textarea');
+          input.className = 'property-field-input textarea';
           break;
         default:
           input = document.createElement('input');
           input.type = control.type || 'text';
+          input.className = 'property-field-input';
       }
+      const inputId = `${node.id}_${control.key}`;
       input.name = control.key;
+      input.id = inputId;
       input.value = node.config[control.key] ?? control.default ?? '';
       if (control.placeholder) input.placeholder = control.placeholder;
-      field.appendChild(input);
+      input.autocomplete = 'off';
+      field.htmlFor = inputId;
+      field.append(keyLabel, input);
       this.propertyFields.appendChild(field);
     });
 
@@ -548,6 +649,7 @@ export class NodeEditor {
       });
       this.propertyDialog.close();
       this.propertyForm.reset();
+      this.persistGraph();
     };
 
     this.propertyForm.onreset = () => {
@@ -701,13 +803,25 @@ export class NodeEditor {
       this.persistence.clear();
     }
     this.selectedNodeId = null;
+    this.selectedConnection = null;
+    this.connectionPaths = [];
     this._hidePortContextMenu();
   }
 
   _bindPointerEvents() {
     this.nodeLayer.addEventListener('pointerdown', (event) => {
-      if (!event.target.closest('.node')) {
-        this._clearSelection();
+      const isNodeTarget = Boolean(event.target.closest('.node'));
+      if (!isNodeTarget) {
+        const connection = this._hitTestConnection(event.clientX, event.clientY);
+        if (connection) {
+          event.preventDefault();
+          this._selectConnection(connection);
+          return;
+        }
+      }
+      if (!isNodeTarget) {
+        this._clearConnectionSelection({ redraw: false });
+        this._clearNodeSelection();
       }
       this.activeConnection = null;
       this._drawConnections();
@@ -722,20 +836,28 @@ export class NodeEditor {
 
   _bindKeyboardEvents() {
     window.addEventListener('keydown', (event) => {
-      if (event.key === 'Delete' && this.selectedNodeId) {
+      if (event.key === 'Delete') {
         const active = document.activeElement;
         if (active && ['INPUT', 'TEXTAREA'].includes(active.tagName)) {
           return;
         }
         event.preventDefault();
-        this._removeNode(this.selectedNodeId);
+        if (this.selectedConnection) {
+          this._removeSelectedConnection();
+        } else if (this.selectedNodeId) {
+          this._removeNode(this.selectedNodeId);
+        }
       }
     });
   }
 
   _selectNode(nodeId) {
-    if (this.selectedNodeId === nodeId) return;
-    this._clearSelection();
+    if (this.selectedNodeId === nodeId) {
+      this._clearConnectionSelection();
+      return;
+    }
+    this._clearConnectionSelection();
+    this._clearNodeSelection();
     const el = this.nodeLayer.querySelector(`.node[data-id="${nodeId}"]`);
     if (el) {
       el.classList.add('selected');
@@ -744,6 +866,11 @@ export class NodeEditor {
   }
 
   _clearSelection() {
+    this._clearNodeSelection();
+    this._clearConnectionSelection();
+  }
+
+  _clearNodeSelection() {
     if (!this.selectedNodeId) return;
     const el = this.nodeLayer.querySelector(`.node[data-id="${this.selectedNodeId}"]`);
     if (el) {
@@ -763,9 +890,12 @@ export class NodeEditor {
     this.connections = this.connections.filter(
       (connection) => connection.fromNode !== nodeId && connection.toNode !== nodeId
     );
+    if (this.selectedConnection && !this.connections.includes(this.selectedConnection)) {
+      this._clearConnectionSelection({ redraw: false });
+    }
     this._drawConnections();
     if (this.selectedNodeId === nodeId) {
-      this.selectedNodeId = null;
+      this._clearNodeSelection();
     }
     this._hidePortContextMenu();
     this.persistGraph();

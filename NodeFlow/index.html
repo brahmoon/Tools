@@ -108,12 +108,12 @@
                 <textarea id="node-outputs" name="outputs" rows="3" placeholder="Result"></textarea>
               </div>
               <div class="field-group">
-                <label for="node-constants">定数入力（ key | ラベル | デフォルト ）</label>
+                <label for="node-constants">定数入力（ key | 値 ）</label>
                 <textarea
                   id="node-constants"
                   name="constants"
                   rows="4"
-                  placeholder="threshold | 閾値 | # TODO: set value"
+                  placeholder="threshold | # TODO: set value"
                 ></textarea>
               </div>
               <div class="field-group">
@@ -159,30 +159,7 @@
       const nodeTemplate = document.getElementById('node-template');
 
       let customSpecs = listCustomNodeSpecs();
-
-      const editor = new NodeEditor({
-        paletteEl,
-        nodeLayer,
-        connectionLayer,
-        propertyDialog,
-        propertyForm,
-        propertyFields,
-        nodeTemplate,
-        library: specsToDefinitions(customSpecs),
-        onGenerateScript: exportScript,
-        persistence: {
-          load: loadGraph,
-          save: saveGraph,
-          clear: clearGraph,
-        },
-      });
-
-      window.addEventListener('resize', () => editor.resize());
-
-      document.getElementById('export-script').addEventListener('click', () => editor.exportScript());
-      document.getElementById('save-flow').addEventListener('click', () => editor.persistGraph());
-      document.getElementById('load-flow').addEventListener('click', () => editor.restoreGraph());
-      document.getElementById('clear-flow').addEventListener('click', () => editor.clearGraph());
+      let editor;
 
       const showToast = (message) => {
         if (!message) return;
@@ -251,15 +228,19 @@
             const parts = line.split('|').map((part) => part.trim());
             const key = sanitizeToken(parts[0]);
             if (!key) return null;
-            const label = parts[1] || parts[0] || key;
-            const defaultValue = parts[2] || CONSTANT_PLACEHOLDER;
-            return { key, label, default: defaultValue };
+            const defaultValue =
+              parts.length >= 3
+                ? parts[2]
+                : parts[1]
+                ? parts[1]
+                : CONSTANT_PLACEHOLDER;
+            return { key, default: defaultValue || CONSTANT_PLACEHOLDER };
           })
           .filter((constant, index, self) => constant && self.findIndex((item) => item.key === constant.key) === index);
 
       const formatConstants = (constants) =>
         (constants || [])
-          .map((constant) => `${constant.key} | ${constant.label} | ${constant.default}`)
+          .map((constant) => `${constant.key} | ${constant.default}`)
           .join('\n');
 
       const loadSpecIntoForm = (spec, { fromSample = false } = {}) => {
@@ -366,11 +347,49 @@
         setTimeout(() => fields.label.focus(), 50);
       };
 
+      const openDesignerForSpec = (specId) => {
+        ensureDesignerInitialized();
+        const spec = customSpecs.find((item) => item.id === specId);
+        if (spec) {
+          loadSpecIntoForm(spec);
+          designerStatus.textContent = `編集中: ${spec.id}`;
+        } else {
+          loadSpecIntoForm(createEmptySpec());
+          designerStatus.textContent = '指定されたカスタムノードが見つかりません。';
+        }
+        openDesigner();
+      };
+
       const closeDesigner = () => {
         designerEl.classList.remove('open');
         designerEl.setAttribute('aria-hidden', 'true');
         document.body.classList.remove('designer-open');
       };
+
+      editor = new NodeEditor({
+        paletteEl,
+        nodeLayer,
+        connectionLayer,
+        propertyDialog,
+        propertyForm,
+        propertyFields,
+        nodeTemplate,
+        library: specsToDefinitions(customSpecs),
+        onGenerateScript: exportScript,
+        onEditCustomNode: openDesignerForSpec,
+        persistence: {
+          load: loadGraph,
+          save: saveGraph,
+          clear: clearGraph,
+        },
+      });
+
+      window.addEventListener('resize', () => editor.resize());
+
+      document.getElementById('export-script').addEventListener('click', () => editor.exportScript());
+      document.getElementById('save-flow').addEventListener('click', () => editor.persistGraph());
+      document.getElementById('load-flow').addEventListener('click', () => editor.restoreGraph());
+      document.getElementById('clear-flow').addEventListener('click', () => editor.clearGraph());
 
       openDesignerBtn.addEventListener('click', openDesigner);
       closeDesignerBtn.addEventListener('click', closeDesigner);
