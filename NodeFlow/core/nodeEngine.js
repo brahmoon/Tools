@@ -94,13 +94,12 @@ export class NodeEditor {
   }
 
   _createDirectoryItem(name, meta = {}) {
-    const collapsed = typeof meta.collapsed === 'boolean' ? meta.collapsed : false;
     return {
       id: this._makePaletteId(PALETTE_DIRECTORY_PREFIX),
       type: 'directory',
       name: name || 'New Folder',
       children: [],
-      meta: { ...meta, collapsed },
+      meta: { ...meta },
     };
   }
 
@@ -406,44 +405,29 @@ export class NodeEditor {
     if (!isRoot) {
       const header = document.createElement('div');
       header.className = 'palette-directory-header';
+      header.textContent = directory.name;
       header.dataset.id = directory.id;
       header.draggable = true;
-      const isCollapsed = Boolean(directory.meta?.collapsed);
-      header.setAttribute('aria-expanded', String(!isCollapsed));
-
-      const toggle = document.createElement('button');
-      toggle.type = 'button';
-      toggle.className = 'palette-directory-toggle';
-      toggle.setAttribute('aria-expanded', String(!isCollapsed));
-      toggle.setAttribute(
-        'aria-label',
-        isCollapsed ? `${directory.name} を展開` : `${directory.name} を折りたたむ`
-      );
-      toggle.textContent = isCollapsed ? '▸' : '▾';
-      toggle.addEventListener('pointerdown', (event) => event.stopPropagation());
-      toggle.addEventListener('click', (event) => {
-        event.stopPropagation();
-        event.preventDefault();
-        this._toggleDirectoryCollapse(directory.id);
-      });
-
-      const title = document.createElement('span');
-      title.className = 'palette-directory-name';
-      title.textContent = directory.name;
-
-      header.append(toggle, title);
       header.addEventListener('dragstart', (event) => this._onPaletteDragStart(event, directory));
       header.addEventListener('dragend', () => this._resetPaletteDrag());
-      header.addEventListener('dragover', (event) => this._onPaletteDragOver(event));
-      header.addEventListener('drop', (event) => this._onPaletteDrop(event));
+      header.addEventListener('dragover', (event) =>
+        this._onPaletteDragOver(event, { id: directory.id, type: 'directory' })
+      );
+      header.addEventListener('drop', (event) =>
+        this._onPaletteDrop(event, { id: directory.id, type: 'directory' })
+      );
       container.appendChild(header);
     }
 
     const childrenContainer = document.createElement('div');
     childrenContainer.className = 'palette-children';
     childrenContainer.dataset.parentId = directory.id;
-    childrenContainer.addEventListener('dragover', (event) => this._onPaletteDragOver(event));
-    childrenContainer.addEventListener('drop', (event) => this._onPaletteDrop(event));
+    childrenContainer.addEventListener('dragover', (event) =>
+      this._onPaletteDragOver(event, { id: directory.id, type: 'container' })
+    );
+    childrenContainer.addEventListener('drop', (event) =>
+      this._onPaletteDrop(event, { id: directory.id, type: 'container' })
+    );
 
     (directory.children || []).forEach((child) => {
       if (child.type === 'directory') {
@@ -455,12 +439,6 @@ export class NodeEditor {
         }
       }
     });
-
-    const isCollapsed = Boolean(directory.meta?.collapsed);
-    if (isCollapsed) {
-      container.classList.add('is-collapsed');
-      childrenContainer.hidden = true;
-    }
 
     container.appendChild(childrenContainer);
     return container;
@@ -483,8 +461,10 @@ export class NodeEditor {
     });
     button.addEventListener('dragstart', (event) => this._onPaletteDragStart(event, item));
     button.addEventListener('dragend', () => this._resetPaletteDrag());
-    button.addEventListener('dragover', (event) => this._onPaletteDragOver(event));
-    button.addEventListener('drop', (event) => this._onPaletteDrop(event));
+    button.addEventListener('dragover', (event) =>
+      this._onPaletteDragOver(event, { id: item.id, type: 'node' })
+    );
+    button.addEventListener('drop', (event) => this._onPaletteDrop(event, { id: item.id, type: 'node' }));
     return button;
   }
 
@@ -514,264 +494,132 @@ export class NodeEditor {
     }
   }
 
-  _resolvePaletteDropContext(event) {
-    if (!event || !event.target || !this.paletteEl.contains(event.target)) {
-      return null;
-    }
-
-    const origin = event.target instanceof Element ? event.target : event.target.parentElement;
-    if (!origin) {
-      return null;
-    }
-    if (origin.closest('.palette-drop-indicator')) {
-      return null;
-    }
-
-    const selector =
-      '.palette-node, .palette-directory-header, .palette-children, .palette-directory, .palette-root';
-    const target = origin.closest(selector);
-    if (!target) {
-      return null;
-    }
-
-    if (target.classList.contains('palette-node')) {
-      const parentContainer = target.closest('.palette-children');
-      const parentId = parentContainer?.dataset.parentId || this.paletteState.id;
-      return {
-        type: 'node',
-        id: target.dataset.id,
-        element: target,
-        parentId,
-      };
-    }
-
-    if (target.classList.contains('palette-directory-header')) {
-      return {
-        type: 'directory-header',
-        id: target.dataset.id,
-        element: target,
-      };
-    }
-
-    if (target.classList.contains('palette-children')) {
-      const parentId = target.dataset.parentId || this.paletteState.id;
-      return {
-        type: 'container',
-        id: parentId,
-        element: target,
-        parentId,
-      };
-    }
-
-    if (target.classList.contains('palette-directory')) {
-      const header = target.querySelector(':scope > .palette-directory-header');
-      if (header) {
-        return {
-          type: 'directory-header',
-          id: header.dataset.id,
-          element: header,
-        };
-      }
-      const childrenContainer = target.querySelector(':scope > .palette-children');
-      if (childrenContainer) {
-        const parentId = childrenContainer.dataset.parentId || target.dataset.id || this.paletteState.id;
-        return {
-          type: 'container',
-          id: parentId,
-          element: childrenContainer,
-          parentId,
-        };
-      }
-    }
-
-    if (target.classList.contains('palette-root')) {
-      const childrenContainer = target.querySelector(':scope > .palette-children');
-      if (childrenContainer) {
-        const parentId =
-          childrenContainer.dataset.parentId || target.dataset.id || this.paletteState.id;
-        return {
-          type: 'container',
-          id: parentId,
-          element: childrenContainer,
-          parentId,
-        };
-      }
-      return {
-        type: 'container',
-        id: target.dataset.id || this.paletteState.id,
-        element: target,
-        parentId: target.dataset.id || this.paletteState.id,
-      };
-    }
-
-    return null;
-  }
-
-  _computePaletteDropPlacement(context, event) {
-    if (!context) return null;
-    const paletteRect = this.paletteEl.getBoundingClientRect();
-
-    if (context.type === 'node') {
-      const elementRect = context.element.getBoundingClientRect();
-      const before = event.clientY < elementRect.top + elementRect.height / 2;
-      const parentDirectory = this._findDirectoryById(context.parentId) || this.paletteState;
-      const siblings = parentDirectory.children || [];
-      const currentIndex = siblings.findIndex((child) => child.id === context.id);
-      const baseIndex = currentIndex === -1 ? siblings.length : currentIndex;
-      const insertionIndex = before ? baseIndex : baseIndex + 1;
-      return {
-        parentId: context.parentId,
-        index: insertionIndex,
-        indicator: {
-          left: elementRect.left - paletteRect.left,
-          top: elementRect.top - paletteRect.top + (before ? 0 : elementRect.height),
-          width: elementRect.width,
-        },
-      };
-    }
-
-    if (context.type === 'directory-header') {
-      const directoryId = context.id;
-      const directory = this._findDirectoryById(directoryId);
-      if (!directory) {
-        return null;
-      }
-      const headerRect = context.element.getBoundingClientRect();
-      const directoryEl = context.element.closest('[data-id]');
-      const childrenContainer = directoryEl?.querySelector(':scope > .palette-children');
-      const childElements = childrenContainer
-        ? Array.from(childrenContainer.children).filter((child) =>
-            child.matches('.palette-directory, .palette-node')
-          )
-        : [];
-      let indicatorLeft = headerRect.left - paletteRect.left;
-      let indicatorTop = headerRect.bottom - paletteRect.top;
-      let indicatorWidth = headerRect.width;
-      if (childElements.length) {
-        const lastRect = childElements[childElements.length - 1].getBoundingClientRect();
-        if (lastRect.height > 0 && lastRect.width > 0) {
-          indicatorLeft = lastRect.left - paletteRect.left;
-          indicatorTop = lastRect.bottom - paletteRect.top;
-          indicatorWidth = lastRect.width;
-        }
-      }
-      return {
-        parentId: directoryId,
-        index: (directory.children || []).length,
-        indicator: {
-          left: indicatorLeft,
-          top: indicatorTop,
-          width: indicatorWidth,
-        },
-      };
-    }
-
-    if (context.type === 'container') {
-      const containerEl = context.element;
-      const parentId = context.parentId || context.id;
-      const directory = this._findDirectoryById(parentId);
-      if (!directory) {
-        return null;
-      }
-      const containerRect = containerEl.getBoundingClientRect();
-      const children = Array.from(containerEl.children).filter((child) =>
-        child.matches('.palette-directory, .palette-node')
-      );
-      if (!children.length) {
-        return {
-          parentId,
-          index: 0,
-          indicator: {
-            left: containerRect.left - paletteRect.left,
-            top: containerRect.top - paletteRect.top,
-            width: containerRect.width,
-          },
-        };
-      }
-      const cursorY = event.clientY;
-      for (let index = 0; index < children.length; index += 1) {
-        const childRect = children[index].getBoundingClientRect();
-        if (cursorY < childRect.top + childRect.height / 2) {
-          return {
-            parentId,
-            index,
-            indicator: {
-              left: childRect.left - paletteRect.left,
-              top: childRect.top - paletteRect.top,
-              width: childRect.width,
-            },
-          };
-        }
-      }
-      const lastRect = children[children.length - 1].getBoundingClientRect();
-      return {
-        parentId,
-        index: children.length,
-        indicator: {
-          left: lastRect.left - paletteRect.left,
-          top: lastRect.bottom - paletteRect.top,
-          width: lastRect.width,
-        },
-      };
-    }
-
-    return null;
-  }
-
-  _showPaletteDropIndicator(placement) {
-    if (!placement || !placement.indicator) {
-      this._hidePaletteDropIndicator();
-      return;
-    }
-    const indicator = this._ensurePaletteIndicator();
-    indicator.classList.remove('hidden');
-    indicator.style.left = `${placement.indicator.left}px`;
-    indicator.style.top = `${placement.indicator.top}px`;
-    indicator.style.width = `${placement.indicator.width}px`;
-  }
-
-  _onPaletteDragOver(event) {
-    if (!this.paletteDragState) return;
+  _onPaletteDragOver(event, target) {
+    if (!this.paletteDragState || !target?.id) return;
     event.preventDefault();
     if (event.dataTransfer) {
       event.dataTransfer.dropEffect = 'move';
     }
-    const context = this._resolvePaletteDropContext(event);
-    if (!context) {
-      this.paletteDragState.dropTarget = null;
-      this._hidePaletteDropIndicator();
+
+    const indicator = this._ensurePaletteIndicator();
+    const paletteRect = this.paletteEl.getBoundingClientRect();
+    const rect = event.currentTarget.getBoundingClientRect();
+
+    if (target.type === 'container') {
+      const children = Array.from(event.currentTarget.children).filter((child) =>
+        child.matches('.palette-directory, .palette-node')
+      );
+      indicator.classList.remove('hidden');
+
+      if (!children.length) {
+        indicator.style.width = `${rect.width}px`;
+        indicator.style.left = `${rect.left - paletteRect.left}px`;
+        indicator.style.top = `${rect.top - paletteRect.top}px`;
+        this.paletteDragState.dropTarget = {
+          id: target.id,
+          type: 'directory',
+          position: 'into',
+        };
+        return;
+      }
+
+      const cursorY = event.clientY;
+      let placed = false;
+      for (const child of children) {
+        const childRect = child.getBoundingClientRect();
+        const before = cursorY < childRect.top + childRect.height / 2;
+        if (before) {
+          indicator.style.width = `${childRect.width}px`;
+          indicator.style.left = `${childRect.left - paletteRect.left}px`;
+          indicator.style.top = `${childRect.top - paletteRect.top}px`;
+          this.paletteDragState.dropTarget = {
+            id: child.dataset.id,
+            type: child.dataset.type === 'directory' ? 'directory' : 'node',
+            position: 'before',
+          };
+          placed = true;
+          break;
+        }
+      }
+
+      if (!placed) {
+        const lastChild = children[children.length - 1];
+        const lastRect = lastChild.getBoundingClientRect();
+        indicator.style.width = `${lastRect.width}px`;
+        indicator.style.left = `${lastRect.left - paletteRect.left}px`;
+        indicator.style.top = `${lastRect.top - paletteRect.top + lastRect.height}px`;
+        this.paletteDragState.dropTarget = {
+          id: lastChild.dataset.id,
+          type: lastChild.dataset.type === 'directory' ? 'directory' : 'node',
+          position: 'after',
+        };
+      }
       return;
     }
-    const placement = this._computePaletteDropPlacement(context, event);
-    if (!placement) {
-      this.paletteDragState.dropTarget = null;
-      this._hidePaletteDropIndicator();
+
+    if (target.type === 'directory' && this.paletteDragState.itemType === 'node') {
+      const directoryEl = event.currentTarget.closest('[data-type="directory"]');
+      const childrenContainer = directoryEl?.querySelector(':scope > .palette-children');
+      const children = childrenContainer
+        ? Array.from(childrenContainer.children).filter((child) =>
+            child.matches('.palette-directory, .palette-node')
+          )
+        : [];
+      if (children.length) {
+        const lastRect = children[children.length - 1].getBoundingClientRect();
+        indicator.style.left = `${lastRect.left - paletteRect.left}px`;
+        indicator.style.width = `${lastRect.width}px`;
+        indicator.style.top = `${lastRect.top - paletteRect.top + lastRect.height}px`;
+      } else if (childrenContainer) {
+        const containerRect = childrenContainer.getBoundingClientRect();
+        indicator.style.left = `${containerRect.left - paletteRect.left}px`;
+        indicator.style.width = `${containerRect.width}px`;
+        indicator.style.top = `${containerRect.top - paletteRect.top}px`;
+      } else {
+        indicator.style.left = `${rect.left - paletteRect.left}px`;
+        indicator.style.width = `${rect.width}px`;
+        indicator.style.top = `${rect.top - paletteRect.top + rect.height}px`;
+      }
+      indicator.classList.remove('hidden');
+      this.paletteDragState.dropTarget = {
+        id: target.id,
+        type: 'directory',
+        position: 'into',
+      };
       return;
     }
-    this._showPaletteDropIndicator(placement);
+
+    const offsetY = event.clientY - rect.top;
+    const position = offsetY < rect.height / 2 ? 'before' : 'after';
+    indicator.classList.remove('hidden');
+    indicator.style.width = `${rect.width}px`;
+    indicator.style.left = `${rect.left - paletteRect.left}px`;
+    indicator.style.top = `${rect.top - paletteRect.top + (position === 'after' ? rect.height : 0)}px`;
     this.paletteDragState.dropTarget = {
-      parentId: placement.parentId,
-      index: placement.index,
+      id: target.id,
+      type: target.type,
+      position,
     };
   }
 
-  _onPaletteDrop(event) {
+  _onPaletteDrop(event, target) {
     if (!this.paletteDragState) return;
     event.preventDefault();
-    let dropTarget = this.paletteDragState.dropTarget;
-    if (!dropTarget) {
-      const context = this._resolvePaletteDropContext(event);
-      const placement = context ? this._computePaletteDropPlacement(context, event) : null;
-      if (placement) {
-        dropTarget = { parentId: placement.parentId, index: placement.index };
-      }
-    }
+    const dropTarget =
+      this.paletteDragState.dropTarget ||
+      (target?.id
+        ? {
+            id: target.id,
+            type: target.type,
+            position: target.type === 'container' ? 'into' : 'after',
+          }
+        : null);
     if (!dropTarget) {
       this._resetPaletteDrag();
       return;
     }
     const { itemId } = this.paletteDragState;
-    const moved = this._movePaletteItem(itemId, dropTarget);
+    const moved = this._movePaletteItem(itemId, dropTarget.id, dropTarget.position);
     if (moved) {
       this._savePaletteState();
       this._renderPalette();
@@ -779,47 +627,43 @@ export class NodeEditor {
     this._resetPaletteDrag();
   }
 
-  _movePaletteItem(itemId, dropTarget) {
-    if (!itemId || !dropTarget) return false;
-    const { parentId, index } = dropTarget;
-    if (!parentId || typeof index !== 'number' || index < 0) return false;
+  _movePaletteItem(itemId, targetId, position) {
+    if (!itemId || !targetId || itemId === targetId) return false;
     const item = this._findPaletteItem(itemId);
     if (!item) return false;
-    const targetDir = this._findDirectoryById(parentId);
-    if (!targetDir) return false;
-    if (item.type === 'directory') {
-      if (itemId === parentId) return false;
-      if (this._isDescendant(itemId, parentId)) {
+    if (position === 'into') {
+      const targetDir = this._findDirectoryById(targetId);
+      if (!targetDir || itemId === targetId) return false;
+      if (item.type === 'directory' && this._isDescendant(itemId, targetId)) {
         return false;
       }
+      const originParent = this._findParentOf(itemId) || this.paletteState;
+      originParent.children = (originParent.children || []).filter((child) => child.id !== itemId);
+      targetDir.children = targetDir.children || [];
+      targetDir.children.push(item);
+      return true;
     }
 
+    const targetItem = this._findPaletteItem(targetId);
+    if (!targetItem) return false;
+    if (item.type === 'directory' && this._isDescendant(itemId, targetId)) {
+      return false;
+    }
     const originParent = this._findParentOf(itemId) || this.paletteState;
-    if (!originParent) return false;
+    const targetParent = this._findParentOf(targetId) || this.paletteState;
+    if (!originParent || !targetParent) return false;
 
     const originIndex = (originParent.children || []).findIndex((child) => child.id === itemId);
     if (originIndex === -1) return false;
     const [removed] = originParent.children.splice(originIndex, 1);
-
-    targetDir.children = targetDir.children || [];
-    let insertIndex = Math.min(Math.max(index, 0), targetDir.children.length);
-    if (originParent === targetDir && originIndex < insertIndex) {
-      insertIndex -= 1;
+    let targetIndex = (targetParent.children || []).findIndex((child) => child.id === targetId);
+    if (targetIndex === -1) return false;
+    if (originParent === targetParent && originIndex < targetIndex) {
+      targetIndex -= 1;
     }
-    targetDir.children.splice(insertIndex, 0, removed);
+    const insertIndex = position === 'before' ? targetIndex : targetIndex + 1;
+    targetParent.children.splice(insertIndex, 0, removed);
     return true;
-  }
-
-  _toggleDirectoryCollapse(directoryId) {
-    const directory = this._findDirectoryById(directoryId);
-    if (!directory) return;
-    const collapsed = Boolean(directory.meta?.collapsed);
-    directory.meta = {
-      ...(directory.meta || {}),
-      collapsed: !collapsed,
-    };
-    this._savePaletteState();
-    this._renderPalette();
   }
 
   _resetPaletteDrag() {
