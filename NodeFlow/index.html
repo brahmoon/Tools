@@ -154,7 +154,7 @@
         createEmptySpec,
       } from './core/nodeLibrary.js';
       import { NodeEditor } from './core/nodeEngine.js';
-      import { loadGraph, saveGraph, clearGraph } from './storage/fileStore.js';
+      import { loadGraph, saveGraph, clearGraph } from './storage/localStore.js';
       import { exportScript } from './export/scriptExport.js';
 
       const paletteEl = document.getElementById('node-palette');
@@ -479,6 +479,7 @@
 
       renderCustomNodeList();
 
+      editor.restoreGraph();
     </script>
   </body>
 </html>
