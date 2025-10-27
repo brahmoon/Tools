@@ -49,7 +49,7 @@ export class NodeEditor {
     this.propertyForm = propertyForm;
     this.propertyFields = propertyFields;
     this.nodeTemplate = nodeTemplate;
-    this.library = library;
+    this.library = [];
     this.onGenerateScript = onGenerateScript;
     this.persistence = persistence;
 
@@ -64,11 +64,70 @@ export class NodeEditor {
 
     this.ctx = this.connectionLayer.getContext('2d');
 
-    this._renderPalette();
     this._setupPortContextMenu();
     this._bindPointerEvents();
     this._bindKeyboardEvents();
+    this.setLibrary(library || [], { persist: false });
     this.resize();
+  }
+
+  setLibrary(definitions, { persist = true } = {}) {
+    this.library = Array.isArray(definitions)
+      ? definitions.filter((definition) => definition && definition.id)
+      : [];
+    this._renderPalette();
+
+    const defMap = new Map(this.library.map((def) => [def.id, def]));
+    const toRemove = [];
+
+    this.nodes.forEach((node, nodeId) => {
+      const def = defMap.get(node.type);
+      if (!def) {
+        toRemove.push(nodeId);
+        return;
+      }
+      node.definition = def;
+      const defaults = Object.fromEntries(
+        (def.controls || []).map((control) => [control.key, control.default ?? ''])
+      );
+      node.config = {
+        ...defaults,
+        ...node.config,
+      };
+      Object.keys(node.config).forEach((key) => {
+        if (!(def.controls || []).some((control) => control.key === key)) {
+          if (!Object.prototype.hasOwnProperty.call(defaults, key)) {
+            delete node.config[key];
+          }
+        }
+      });
+    });
+
+    toRemove.forEach((nodeId) => {
+      this.nodes.delete(nodeId);
+      if (this.selectedNodeId === nodeId) {
+        this.selectedNodeId = null;
+      }
+    });
+
+    this.connections = this.connections.filter((connection) => {
+      const fromNode = this.nodes.get(connection.fromNode);
+      const toNode = this.nodes.get(connection.toNode);
+      if (!fromNode || !toNode) return false;
+      const fromOutputs = Array.isArray(fromNode.definition.outputs)
+        ? fromNode.definition.outputs
+        : [];
+      const toInputs = Array.isArray(toNode.definition.inputs)
+        ? toNode.definition.inputs
+        : [];
+      return fromOutputs.includes(connection.fromPort) && toInputs.includes(connection.toPort);
+    });
+
+    this._redrawNodes();
+    this._drawConnections();
+    if (persist) {
+      this.persistGraph();
+    }
   }
 
   resize() {
@@ -89,8 +148,9 @@ export class NodeEditor {
     }
 
     const groups = this.library.reduce((acc, def) => {
-      acc[def.category] = acc[def.category] || [];
-      acc[def.category].push(def);
+      const category = def.category || 'Custom';
+      acc[category] = acc[category] || [];
+      acc[category].push(def);
       return acc;
     }, {});
 
@@ -141,13 +201,13 @@ export class NodeEditor {
     });
 
     const inputContainer = el.querySelector('.inputs');
-    node.definition.inputs.forEach((name) => {
+    (node.definition.inputs || []).forEach((name) => {
       const port = this._createPort('input', name, node.id);
       inputContainer.appendChild(port);
     });
 
     const outputContainer = el.querySelector('.outputs');
-    node.definition.outputs.forEach((name) => {
+    (node.definition.outputs || []).forEach((name) => {
       const port = this._createPort('output', name, node.id);
       outputContainer.appendChild(port);
     });
@@ -159,6 +219,18 @@ export class NodeEditor {
     el.addEventListener('focus', () => this._selectNode(node.id));
 
     this.nodeLayer.appendChild(el);
+  }
+
+  _redrawNodes() {
+    this.nodeLayer.querySelectorAll('.node').forEach((nodeEl) => nodeEl.remove());
+    this.nodes.forEach((node) => {
+      this._renderNode(node);
+    });
+    if (this.selectedNodeId && !this.nodes.has(this.selectedNodeId)) {
+      this.selectedNodeId = null;
+    } else if (this.selectedNodeId) {
+      this._selectNode(this.selectedNodeId);
+    }
   }
 
   _createPort(type, name, nodeId) {
@@ -423,7 +495,8 @@ export class NodeEditor {
     this.propertyDialog.dataset.nodeId = nodeId;
     this.propertyDialog.querySelector('#property-title').textContent = `${node.definition.label} settings`;
 
-    node.definition.controls.forEach((control) => {
+    const controls = node.definition.controls || [];
+    controls.forEach((control) => {
       const field = document.createElement('label');
       field.textContent = control.label;
       let input;
@@ -470,7 +543,7 @@ export class NodeEditor {
     this.propertyForm.onsubmit = (event) => {
       event.preventDefault();
       const formData = new FormData(this.propertyForm);
-      node.definition.controls.forEach((control) => {
+      controls.forEach((control) => {
         node.config[control.key] = formData.get(control.key) ?? '';
       });
       this.propertyDialog.close();
