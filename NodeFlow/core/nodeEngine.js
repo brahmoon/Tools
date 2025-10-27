@@ -94,13 +94,12 @@ export class NodeEditor {
   }
 
   _createDirectoryItem(name, meta = {}) {
-    const collapsed = typeof meta.collapsed === 'boolean' ? meta.collapsed : false;
     return {
       id: this._makePaletteId(PALETTE_DIRECTORY_PREFIX),
       type: 'directory',
       name: name || 'New Folder',
       children: [],
-      meta: { ...meta, collapsed },
+      meta: { ...meta },
     };
   }
 
@@ -406,32 +405,9 @@ export class NodeEditor {
     if (!isRoot) {
       const header = document.createElement('div');
       header.className = 'palette-directory-header';
+      header.textContent = directory.name;
       header.dataset.id = directory.id;
       header.draggable = true;
-      const isCollapsed = Boolean(directory.meta?.collapsed);
-      header.setAttribute('aria-expanded', String(!isCollapsed));
-
-      const toggle = document.createElement('button');
-      toggle.type = 'button';
-      toggle.className = 'palette-directory-toggle';
-      toggle.setAttribute('aria-expanded', String(!isCollapsed));
-      toggle.setAttribute(
-        'aria-label',
-        isCollapsed ? `${directory.name} を展開` : `${directory.name} を折りたたむ`
-      );
-      toggle.textContent = isCollapsed ? '▸' : '▾';
-      toggle.addEventListener('pointerdown', (event) => event.stopPropagation());
-      toggle.addEventListener('click', (event) => {
-        event.stopPropagation();
-        event.preventDefault();
-        this._toggleDirectoryCollapse(directory.id);
-      });
-
-      const title = document.createElement('span');
-      title.className = 'palette-directory-name';
-      title.textContent = directory.name;
-
-      header.append(toggle, title);
       header.addEventListener('dragstart', (event) => this._onPaletteDragStart(event, directory));
       header.addEventListener('dragend', () => this._resetPaletteDrag());
       header.addEventListener('dragover', (event) =>
@@ -463,12 +439,6 @@ export class NodeEditor {
         }
       }
     });
-
-    const isCollapsed = Boolean(directory.meta?.collapsed);
-    if (isCollapsed) {
-      container.classList.add('is-collapsed');
-      childrenContainer.hidden = true;
-    }
 
     container.appendChild(childrenContainer);
     return container;
@@ -536,11 +506,9 @@ export class NodeEditor {
     const rect = event.currentTarget.getBoundingClientRect();
 
     if (target.type === 'container') {
-      const containerEl = event.currentTarget;
-      const children = Array.from(containerEl.children).filter((child) =>
+      const children = Array.from(event.currentTarget.children).filter((child) =>
         child.matches('.palette-directory, .palette-node')
       );
-      const parentId = containerEl.dataset.parentId || target.id;
       indicator.classList.remove('hidden');
 
       if (!children.length) {
@@ -548,16 +516,16 @@ export class NodeEditor {
         indicator.style.left = `${rect.left - paletteRect.left}px`;
         indicator.style.top = `${rect.top - paletteRect.top}px`;
         this.paletteDragState.dropTarget = {
-          parentId,
-          index: 0,
+          id: target.id,
+          type: 'directory',
+          position: 'into',
         };
         return;
       }
 
       const cursorY = event.clientY;
       let placed = false;
-      for (let index = 0; index < children.length; index += 1) {
-        const child = children[index];
+      for (const child of children) {
         const childRect = child.getBoundingClientRect();
         const before = cursorY < childRect.top + childRect.height / 2;
         if (before) {
@@ -565,8 +533,9 @@ export class NodeEditor {
           indicator.style.left = `${childRect.left - paletteRect.left}px`;
           indicator.style.top = `${childRect.top - paletteRect.top}px`;
           this.paletteDragState.dropTarget = {
-            parentId,
-            index,
+            id: child.dataset.id,
+            type: child.dataset.type === 'directory' ? 'directory' : 'node',
+            position: 'before',
           };
           placed = true;
           break;
@@ -580,14 +549,15 @@ export class NodeEditor {
         indicator.style.left = `${lastRect.left - paletteRect.left}px`;
         indicator.style.top = `${lastRect.top - paletteRect.top + lastRect.height}px`;
         this.paletteDragState.dropTarget = {
-          parentId,
-          index: children.length,
+          id: lastChild.dataset.id,
+          type: lastChild.dataset.type === 'directory' ? 'directory' : 'node',
+          position: 'after',
         };
       }
       return;
     }
 
-    if (target.type === 'directory') {
+    if (target.type === 'directory' && this.paletteDragState.itemType === 'node') {
       const directoryEl = event.currentTarget.closest('[data-type="directory"]');
       const childrenContainer = directoryEl?.querySelector(':scope > .palette-children');
       const children = childrenContainer
@@ -595,52 +565,40 @@ export class NodeEditor {
             child.matches('.palette-directory, .palette-node')
           )
         : [];
-      const directoryId = directoryEl?.dataset.id || target.id;
-      const isCollapsed = directoryEl?.classList.contains('is-collapsed') || !!childrenContainer?.hidden;
-      let referenceRect = rect;
-      if (!isCollapsed && children.length) {
-        referenceRect = children[children.length - 1].getBoundingClientRect();
+      if (children.length) {
+        const lastRect = children[children.length - 1].getBoundingClientRect();
+        indicator.style.left = `${lastRect.left - paletteRect.left}px`;
+        indicator.style.width = `${lastRect.width}px`;
+        indicator.style.top = `${lastRect.top - paletteRect.top + lastRect.height}px`;
+      } else if (childrenContainer) {
+        const containerRect = childrenContainer.getBoundingClientRect();
+        indicator.style.left = `${containerRect.left - paletteRect.left}px`;
+        indicator.style.width = `${containerRect.width}px`;
+        indicator.style.top = `${containerRect.top - paletteRect.top}px`;
       } else {
-        const headerRect = directoryEl
-          ?.querySelector(':scope > .palette-directory-header')
-          ?.getBoundingClientRect();
-        if (headerRect) {
-          referenceRect = headerRect;
-        }
+        indicator.style.left = `${rect.left - paletteRect.left}px`;
+        indicator.style.width = `${rect.width}px`;
+        indicator.style.top = `${rect.top - paletteRect.top + rect.height}px`;
       }
-      indicator.style.left = `${referenceRect.left - paletteRect.left}px`;
-      indicator.style.width = `${referenceRect.width}px`;
-      indicator.style.top = `${referenceRect.top - paletteRect.top + referenceRect.height}px`;
       indicator.classList.remove('hidden');
       this.paletteDragState.dropTarget = {
-        parentId: directoryId,
-        index: children.length,
+        id: target.id,
+        type: 'directory',
+        position: 'into',
       };
       return;
     }
 
-    const itemEl =
-      event.currentTarget.closest('.palette-directory, .palette-node') || event.currentTarget;
-    const itemRect = itemEl.getBoundingClientRect();
-    const offsetY = event.clientY - itemRect.top;
-    const position = offsetY < itemRect.height / 2 ? 'before' : 'after';
-    const parentContainer = itemEl.closest('.palette-children');
-    const siblings = parentContainer
-      ? Array.from(parentContainer.children).filter((child) =>
-          child.matches('.palette-directory, .palette-node')
-        )
-      : [];
-    const currentIndex = siblings.indexOf(itemEl);
-    const itemIndex = currentIndex === -1 ? 0 : currentIndex;
-    const insertIndex = position === 'before' ? itemIndex : itemIndex + 1;
-    const parentId = parentContainer?.dataset.parentId || this.paletteState.id;
+    const offsetY = event.clientY - rect.top;
+    const position = offsetY < rect.height / 2 ? 'before' : 'after';
     indicator.classList.remove('hidden');
-    indicator.style.width = `${itemRect.width}px`;
-    indicator.style.left = `${itemRect.left - paletteRect.left}px`;
-    indicator.style.top = `${itemRect.top - paletteRect.top + (position === 'after' ? itemRect.height : 0)}px`;
+    indicator.style.width = `${rect.width}px`;
+    indicator.style.left = `${rect.left - paletteRect.left}px`;
+    indicator.style.top = `${rect.top - paletteRect.top + (position === 'after' ? rect.height : 0)}px`;
     this.paletteDragState.dropTarget = {
-      parentId,
-      index: insertIndex,
+      id: target.id,
+      type: target.type,
+      position,
     };
   }
 
@@ -649,13 +607,19 @@ export class NodeEditor {
     event.preventDefault();
     const dropTarget =
       this.paletteDragState.dropTarget ||
-      (target ? this._defaultDropTarget(target) : null);
+      (target?.id
+        ? {
+            id: target.id,
+            type: target.type,
+            position: target.type === 'container' ? 'into' : 'after',
+          }
+        : null);
     if (!dropTarget) {
       this._resetPaletteDrag();
       return;
     }
     const { itemId } = this.paletteDragState;
-    const moved = this._movePaletteItem(itemId, dropTarget);
+    const moved = this._movePaletteItem(itemId, dropTarget.id, dropTarget.position);
     if (moved) {
       this._savePaletteState();
       this._renderPalette();
@@ -663,70 +627,43 @@ export class NodeEditor {
     this._resetPaletteDrag();
   }
 
-  _movePaletteItem(itemId, dropTarget) {
-    if (!itemId || !dropTarget) return false;
-    const { parentId, index } = dropTarget;
-    if (!parentId || typeof index !== 'number' || index < 0) return false;
+  _movePaletteItem(itemId, targetId, position) {
+    if (!itemId || !targetId || itemId === targetId) return false;
     const item = this._findPaletteItem(itemId);
     if (!item) return false;
-    const targetDir = this._findDirectoryById(parentId);
-    if (!targetDir) return false;
-    if (item.type === 'directory') {
-      if (itemId === parentId) return false;
-      if (this._isDescendant(itemId, parentId)) {
+    if (position === 'into') {
+      const targetDir = this._findDirectoryById(targetId);
+      if (!targetDir || itemId === targetId) return false;
+      if (item.type === 'directory' && this._isDescendant(itemId, targetId)) {
         return false;
       }
+      const originParent = this._findParentOf(itemId) || this.paletteState;
+      originParent.children = (originParent.children || []).filter((child) => child.id !== itemId);
+      targetDir.children = targetDir.children || [];
+      targetDir.children.push(item);
+      return true;
     }
 
+    const targetItem = this._findPaletteItem(targetId);
+    if (!targetItem) return false;
+    if (item.type === 'directory' && this._isDescendant(itemId, targetId)) {
+      return false;
+    }
     const originParent = this._findParentOf(itemId) || this.paletteState;
-    if (!originParent) return false;
+    const targetParent = this._findParentOf(targetId) || this.paletteState;
+    if (!originParent || !targetParent) return false;
 
     const originIndex = (originParent.children || []).findIndex((child) => child.id === itemId);
     if (originIndex === -1) return false;
     const [removed] = originParent.children.splice(originIndex, 1);
-
-    targetDir.children = targetDir.children || [];
-    let insertIndex = Math.min(Math.max(index, 0), targetDir.children.length);
-    if (originParent === targetDir && originIndex < insertIndex) {
-      insertIndex -= 1;
+    let targetIndex = (targetParent.children || []).findIndex((child) => child.id === targetId);
+    if (targetIndex === -1) return false;
+    if (originParent === targetParent && originIndex < targetIndex) {
+      targetIndex -= 1;
     }
-    targetDir.children.splice(insertIndex, 0, removed);
+    const insertIndex = position === 'before' ? targetIndex : targetIndex + 1;
+    targetParent.children.splice(insertIndex, 0, removed);
     return true;
-  }
-
-  _defaultDropTarget(target) {
-    if (!target?.id) return null;
-    if (target.type === 'container' || target.type === 'directory') {
-      const dir = this._findDirectoryById(target.id);
-      if (!dir) return null;
-      return {
-        parentId: dir.id,
-        index: (dir.children || []).length,
-      };
-    }
-    if (target.type === 'node') {
-      const parent = this._findParentOf(target.id) || this.paletteState;
-      if (!parent) return null;
-      const index = (parent.children || []).findIndex((child) => child.id === target.id);
-      if (index === -1) return null;
-      return {
-        parentId: parent.id,
-        index: index + 1,
-      };
-    }
-    return null;
-  }
-
-  _toggleDirectoryCollapse(directoryId) {
-    const directory = this._findDirectoryById(directoryId);
-    if (!directory) return;
-    const collapsed = Boolean(directory.meta?.collapsed);
-    directory.meta = {
-      ...(directory.meta || {}),
-      collapsed: !collapsed,
-    };
-    this._savePaletteState();
-    this._renderPalette();
   }
 
   _resetPaletteDrag() {
