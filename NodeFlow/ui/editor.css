@@ -24,6 +24,7 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  --designer-width: 0vw;
 }
 
 .app-header {
@@ -37,6 +38,7 @@ body {
   position: sticky;
   top: 0;
   z-index: 2;
+  transition: padding-right 240ms ease;
 }
 
 .branding {
@@ -95,6 +97,7 @@ button.primary:focus-visible {
   grid-template-columns: 260px 1fr;
   flex: 1;
   overflow: hidden;
+  transition: padding-right 240ms ease;
 }
 
 .palette {
@@ -167,7 +170,7 @@ button.primary:focus-visible {
   box-shadow: var(--node-shadow);
   min-width: 200px;
   padding: 0.75rem;
-  cursor: grab;
+  cursor: default;
   user-select: none;
 }
 
@@ -186,6 +189,25 @@ button.primary:focus-visible {
   align-items: center;
   font-weight: 600;
   margin-bottom: 0.75rem;
+}
+
+.node-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.node-open-designer {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  font-size: 1rem;
+  padding: 0.1rem 0.35rem;
+}
+
+.node-open-designer:hover,
+.node-open-designer:focus-visible {
+  color: var(--accent);
 }
 
 .node-config {
@@ -223,7 +245,7 @@ button.primary:focus-visible {
   border-radius: 50%;
   background: white;
   border: 2px solid var(--accent);
-  cursor: crosshair;
+  cursor: default;
   transition: transform 120ms ease, box-shadow 120ms ease;
 }
 
@@ -406,12 +428,13 @@ button.primary:focus-visible {
 
 body.designer-open {
   overflow: hidden;
+  --designer-width: 50vw;
 }
 
 .designer {
   position: fixed;
   inset: 0 0 0 auto;
-  width: min(720px, 50vw);
+  width: 50vw;
   height: 100vh;
   background: rgba(248, 250, 255, 0.96);
   backdrop-filter: blur(18px);
@@ -426,6 +449,14 @@ body.designer-open {
 .designer.open {
   transform: translateX(0);
   pointer-events: auto;
+}
+
+body.designer-open .app-header {
+  padding-right: calc(1.5rem + var(--designer-width));
+}
+
+body.designer-open .app-body {
+  padding-right: var(--designer-width);
 }
 
 .designer-panel {
@@ -658,7 +689,7 @@ body.designer-open {
 
 @media (max-width: 1100px) {
   .designer {
-    width: min(100vw, 640px);
+    width: 50vw;
   }
 
   .designer-content {
