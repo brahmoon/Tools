@@ -136,6 +136,7 @@
               <p id="designer-status" class="designer-status" role="status" aria-live="polite"></p>
               <div class="designer-actions">
                 <button type="submit" class="primary">保存</button>
+                <button type="button" id="duplicate-node">複製</button>
                 <button type="button" id="reset-form">リセット</button>
               </div>
             </form>
@@ -185,7 +186,9 @@
 
       const refreshLibrary = ({ persist = true } = {}) => {
         customSpecs = listCustomNodeSpecs();
-        editor.setLibrary(specsToDefinitions(customSpecs), { persist });
+        if (editor) {
+          editor.setLibrary(specsToDefinitions(customSpecs), { persist });
+        }
         renderCustomNodeList();
       };
 
@@ -197,6 +200,7 @@
       const sampleListEl = document.getElementById('sample-node-list');
       const designerForm = document.getElementById('custom-node-form');
       const resetFormBtn = document.getElementById('reset-form');
+      const duplicateNodeBtn = document.getElementById('duplicate-node');
       const designerStatus = document.getElementById('designer-status');
       const scriptField = document.getElementById('node-script');
       const CONSTANT_PLACEHOLDER = '# TODO: set value';
@@ -261,6 +265,84 @@
         };
       };
 
+      const findSpecById = (id) => customSpecs.find((spec) => spec.id === id);
+
+      const ensureDuplicatedLabel = (label) => {
+        const base = label && label.trim() ? label.trim() : 'Untitled node';
+        return base.endsWith(' (複製)') ? base : `${base} (複製)`;
+      };
+
+      const generateUniqueNodeId = (seedId) => {
+        const existingIds = new Set(customSpecs.map((spec) => spec.id));
+        let base = sanitizeToken(seedId || '');
+        if (!base) {
+          base = 'custom_node';
+        }
+        if (!existingIds.has(base)) {
+          return base;
+        }
+        const match = base.match(/^(.*?)(\d+)?$/);
+        let prefix = match && match[1] !== undefined ? match[1] : base;
+        if (!prefix) {
+          prefix = base || 'custom_node';
+        }
+        let suffix = match && match[2] ? parseInt(match[2], 10) + 1 : 2;
+        if (!Number.isFinite(suffix) || suffix < 1) {
+          suffix = 2;
+        }
+        let candidate = `${prefix}${suffix}`;
+        while (existingIds.has(candidate)) {
+          suffix += 1;
+          candidate = `${prefix}${suffix}`;
+        }
+        return candidate;
+      };
+
+      const duplicateSpecWithNewId = (spec) => {
+        if (!spec) return null;
+        const working = cloneSpec(spec);
+        const preferredBaseId = working.id || sanitizeToken(working.label).toLowerCase();
+        working.id = generateUniqueNodeId(preferredBaseId);
+        working.label = ensureDuplicatedLabel(working.label);
+        working.category = working.category || 'Custom';
+        working.script = working.script || '';
+        return saveCustomNodeSpec(working);
+      };
+
+      const duplicateCustomNodeById = (specId) => {
+        const spec = findSpecById(specId);
+        if (!spec) {
+          return null;
+        }
+        const saved = duplicateSpecWithNewId(spec);
+        if (saved) {
+          showToast('ノードを複製しました。');
+          refreshLibrary();
+        }
+        return saved;
+      };
+
+      const deleteCustomNodeById = (specId) => {
+        const spec = findSpecById(specId);
+        if (!spec) {
+          return false;
+        }
+        if (!confirm(`${spec.label} を削除しますか？`)) {
+          return false;
+        }
+        deleteCustomNodeSpec(specId);
+        showToast('カスタムノードを削除しました。');
+        refreshLibrary();
+        if (originalId === specId) {
+          if (customSpecs.length) {
+            loadSpecIntoForm(customSpecs[0]);
+          } else {
+            loadSpecIntoForm(createEmptySpec());
+          }
+        }
+        return true;
+      };
+
       const loadSpecIntoForm = (spec, { fromSample = false } = {}) => {
         originalId = fromSample ? '' : spec.id || '';
         fields.label.value = spec.label || '';
@@ -303,16 +385,7 @@
           removeButton.textContent = '削除';
           removeButton.addEventListener('click', (event) => {
             event.stopPropagation();
-            if (confirm(`${spec.label} を削除しますか？`)) {
-              deleteCustomNodeSpec(spec.id);
-              showToast('カスタムノードを削除しました。');
-              refreshLibrary();
-              if (customSpecs.length) {
-                loadSpecIntoForm(customSpecs[0]);
-              } else {
-                loadSpecIntoForm(createEmptySpec());
-              }
-            }
+            deleteCustomNodeById(spec.id);
           });
           item.append(editButton, meta, removeButton);
           customListEl.appendChild(item);
@@ -408,6 +481,15 @@
         library: specsToDefinitions(customSpecs),
         onGenerateScript: exportScript,
         onEditCustomNode: openDesignerForSpec,
+        onDuplicatePaletteNode: ({ definitionId }) => {
+          const saved = duplicateCustomNodeById(definitionId);
+          if (!saved) {
+            return null;
+          }
+          const [definition] = specsToDefinitions([saved]);
+          return { id: saved.id, definition };
+        },
+        onRemovePaletteNode: ({ definitionId }) => deleteCustomNodeById(definitionId),
         persistence: {
           load: loadGraph,
           save: saveGraph,
@@ -435,6 +517,26 @@
         designerStatus.textContent = '新しいノードを作成しています。';
       });
 
+      duplicateNodeBtn.addEventListener('click', () => {
+        const label = fields.label.value.trim();
+        const spec = {
+          id: sanitizeToken(fields.id.value.trim()) || originalId || sanitizeToken(label).toLowerCase(),
+          label: label || 'Untitled node',
+          category: fields.category.value.trim() || 'Custom',
+          inputs: parsePortList(fields.inputs.value),
+          outputs: parsePortList(fields.outputs.value),
+          constants: parseConstants(fields.constants.value),
+          script: fields.script.value.replace(/\r\n/g, '\n'),
+        };
+        const saved = duplicateSpecWithNewId(spec);
+        if (!saved) {
+          return;
+        }
+        showToast('カスタムノードを複製しました。');
+        refreshLibrary();
+        loadSpecIntoForm(saved);
+      });
+
       resetFormBtn.addEventListener('click', () => {
         loadSpecIntoForm(createEmptySpec());
         designerStatus.textContent = '入力をリセットしました。';
@@ -455,7 +557,7 @@
       designerForm.addEventListener('submit', (event) => {
         event.preventDefault();
         const label = fields.label.value.trim();
-        let id = fields.id.value.trim();
+        let id = sanitizeToken(fields.id.value.trim());
         if (!id) {
           id = originalId || sanitizeToken(label).toLowerCase();
         }
@@ -471,6 +573,13 @@
           constants: parseConstants(fields.constants.value),
           script: fields.script.value.replace(/\r\n/g, '\n'),
         };
+        const existing = customSpecs.find((item) => item.id === spec.id);
+        if (existing && existing.id !== originalId) {
+          const overwrite = confirm('このIDのノードは既に存在します。上書きしますか？');
+          if (!overwrite) {
+            return;
+          }
+        }
         const saved = saveCustomNodeSpec(spec);
         showToast('カスタムノードを保存しました (ローカルストレージ)。');
         refreshLibrary();

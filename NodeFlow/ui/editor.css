@@ -142,7 +142,8 @@ button.primary:focus-visible {
 .palette-directory-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 0.4rem;
   font-size: 0.9rem;
   font-weight: 600;
   color: var(--muted);
@@ -161,6 +162,41 @@ button.primary:focus-visible {
 
 .palette-directory-header:active {
   cursor: grabbing;
+}
+
+.palette-directory-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.palette-directory-toggle {
+  border: none;
+  background: transparent;
+  color: inherit;
+  width: 1.4rem;
+  height: 1.4rem;
+  min-width: 1.4rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0;
+  flex: 0 0 1.4rem;
+  line-height: 1;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.palette-directory-toggle:hover,
+.palette-directory-toggle:focus-visible {
+  background: rgba(77, 124, 255, 0.15);
+  color: var(--accent-dark);
+  outline: none;
+}
+
+.palette-directory.is-collapsed > .palette-children {
+  display: none;
 }
 
 .palette-children {
