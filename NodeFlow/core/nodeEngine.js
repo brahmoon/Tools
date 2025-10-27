@@ -1,6 +1,9 @@
 import { wrapPowerShellScript } from './psTemplate.js';
 
 const HANDLE_RADIUS = 6;
+const PALETTE_STORAGE_KEY = 'nodeflow.palette.v1';
+const PALETTE_NODE_PREFIX = 'node:';
+const PALETTE_DIRECTORY_PREFIX = 'dir:';
 
 class Node {
   constructor(definition, id, position) {
@@ -61,28 +64,242 @@ export class NodeEditor {
     this.connectionPaths = [];
     this.selectedConnection = null;
     this.draggedNode = null;
-    this.dragOffset = { x: 0, y: 0 };
     this.nodeCount = 0;
-    this.selectedNodeId = null;
+    this.selectedNodes = new Set();
     this.portMenu = null;
+    this.isDirty = false;
+    this.selectionState = null;
+    this.selectionOverlay = null;
+    this.draggingGroup = null;
+    this.dragMoved = false;
+    this.dragStartClient = null;
+    this.paletteState = this._loadPaletteState(library || []);
+    this.paletteDragState = null;
+    this.paletteDropIndicator = null;
+    this.paletteMenu = null;
+    this._paletteMenuOutsideHandler = null;
 
     this.ctx = this.connectionLayer.getContext('2d');
 
     this._setupPortContextMenu();
+    this._setupPaletteContextMenu();
     this._bindPointerEvents();
     this._bindKeyboardEvents();
     this.setLibrary(library || [], { persist: false });
     this.resize();
   }
 
+  _makePaletteId(prefix) {
+    return `${prefix}${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+  }
+
+  _createDirectoryItem(name, meta = {}) {
+    return {
+      id: this._makePaletteId(PALETTE_DIRECTORY_PREFIX),
+      type: 'directory',
+      name: name || 'New Folder',
+      children: [],
+      meta: { ...meta },
+    };
+  }
+
+  _createNodeItem(definitionId) {
+    return {
+      id: `${PALETTE_NODE_PREFIX}${definitionId}`,
+      type: 'node',
+      nodeId: definitionId,
+    };
+  }
+
+  _createDefaultPaletteState(initialLibrary = []) {
+    const root = {
+      id: `${PALETTE_DIRECTORY_PREFIX}root`,
+      type: 'directory',
+      name: 'Nodes',
+      children: [],
+    };
+    if (!Array.isArray(initialLibrary) || !initialLibrary.length) {
+      return root;
+    }
+    const groups = initialLibrary.reduce((acc, def) => {
+      const category = def.category || 'Custom';
+      if (!acc[category]) {
+        acc[category] = [];
+      }
+      acc[category].push(def.id);
+      return acc;
+    }, {});
+    Object.entries(groups)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .forEach(([category, ids]) => {
+        const dir = this._createDirectoryItem(category, { generated: true });
+        dir.children = ids.map((id) => this._createNodeItem(id));
+        root.children.push(dir);
+      });
+    return root;
+  }
+
+  _loadPaletteState(initialLibrary = []) {
+    const storage = typeof window !== 'undefined' ? window.localStorage : null;
+    try {
+      const raw = storage?.getItem(PALETTE_STORAGE_KEY);
+      if (!raw) {
+        return this._createDefaultPaletteState(initialLibrary);
+      }
+      const parsed = JSON.parse(raw);
+      if (!parsed || parsed.type !== 'directory') {
+        return this._createDefaultPaletteState(initialLibrary);
+      }
+      return parsed;
+    } catch (error) {
+      console.warn('Failed to load palette state', error);
+      return this._createDefaultPaletteState(initialLibrary);
+    }
+  }
+
+  _savePaletteState() {
+    const storage = typeof window !== 'undefined' ? window.localStorage : null;
+    try {
+      storage?.setItem(PALETTE_STORAGE_KEY, JSON.stringify(this.paletteState));
+    } catch (error) {
+      console.warn('Failed to save palette state', error);
+    }
+  }
+
+  _findDirectoryById(id, current = this.paletteState) {
+    if (!current || current.type !== 'directory') return null;
+    if (current.id === id) return current;
+    for (const child of current.children || []) {
+      if (child.type === 'directory') {
+        const found = this._findDirectoryById(id, child);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  _findDirectoryByName(name, current = this.paletteState) {
+    if (!current || current.type !== 'directory') return null;
+    if (current.name === name) return current;
+    for (const child of current.children || []) {
+      if (child.type === 'directory') {
+        const found = this._findDirectoryByName(name, child);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  _findParentOf(itemId, current = this.paletteState, parent = null) {
+    if (!current || current.type !== 'directory') return null;
+    if (current.id === itemId) {
+      return parent;
+    }
+    for (const child of current.children || []) {
+      if (child.id === itemId) {
+        return current;
+      }
+      if (child.type === 'directory') {
+        const found = this._findParentOf(itemId, child, current);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  _findPaletteItem(itemId, current = this.paletteState) {
+    if (!current || current.type !== 'directory') return null;
+    if (current.id === itemId) return current;
+    for (const child of current.children || []) {
+      if (child.id === itemId) return child;
+      if (child.type === 'directory') {
+        const found = this._findPaletteItem(itemId, child);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  _ensurePaletteIntegrity() {
+    if (!this.paletteState || this.paletteState.type !== 'directory') {
+      this.paletteState = this._createDefaultPaletteState(this.library);
+    }
+    const validIds = new Set(this.library.map((def) => def.id));
+    const seen = new Set();
+
+    const prune = (directory) => {
+      directory.children = (directory.children || []).filter((child) => {
+        if (child.type === 'node') {
+          if (!validIds.has(child.nodeId)) {
+            return false;
+          }
+          seen.add(child.nodeId);
+          return true;
+        }
+        if (child.type === 'directory') {
+          prune(child);
+          return true;
+        }
+        return false;
+      });
+    };
+
+    prune(this.paletteState);
+
+    this.library.forEach((definition) => {
+      if (seen.has(definition.id)) {
+        return;
+      }
+      const category = definition.category || 'Custom';
+      const targetDir = this._findDirectoryByName(category) || this.paletteState;
+      targetDir.children = targetDir.children || [];
+      targetDir.children.push(this._createNodeItem(definition.id));
+    });
+
+    this._savePaletteState();
+  }
+
+  _isDescendant(parentId, childId) {
+    const parent = this._findPaletteItem(parentId);
+    if (!parent || parent.type !== 'directory') return false;
+    const stack = [...(parent.children || [])];
+    while (stack.length) {
+      const item = stack.shift();
+      if (item.id === childId) return true;
+      if (item.type === 'directory') {
+        stack.push(...(item.children || []));
+      }
+    }
+    return false;
+  }
+
+  _createDirectory(parentId, name) {
+    const parent = this._findDirectoryById(parentId);
+    if (!parent) return;
+    parent.children = parent.children || [];
+    parent.children.push(this._createDirectoryItem(name));
+    this._savePaletteState();
+    this._renderPalette();
+  }
+
+  _markDirty() {
+    this.isDirty = true;
+  }
+
+  _clearDirty() {
+    this.isDirty = false;
+  }
+
   setLibrary(definitions, { persist = true } = {}) {
     this.library = Array.isArray(definitions)
       ? definitions.filter((definition) => definition && definition.id)
       : [];
+    this._ensurePaletteIntegrity();
     this._renderPalette();
 
     const defMap = new Map(this.library.map((def) => [def.id, def]));
     const toRemove = [];
+    let changed = false;
 
     this.nodes.forEach((node, nodeId) => {
       const def = defMap.get(node.type);
@@ -109,11 +326,13 @@ export class NodeEditor {
 
     toRemove.forEach((nodeId) => {
       this.nodes.delete(nodeId);
-      if (this.selectedNodeId === nodeId) {
-        this.selectedNodeId = null;
+      if (this.selectedNodes.has(nodeId)) {
+        this.selectedNodes.delete(nodeId);
       }
+      changed = true;
     });
 
+    const previousConnectionLength = this.connections.length;
     this.connections = this.connections.filter((connection) => {
       const fromNode = this.nodes.get(connection.fromNode);
       const toNode = this.nodes.get(connection.toNode);
@@ -126,6 +345,9 @@ export class NodeEditor {
         : [];
       return fromOutputs.includes(connection.fromPort) && toInputs.includes(connection.toPort);
     });
+    if (this.connections.length !== previousConnectionLength) {
+      changed = true;
+    }
 
     if (this.selectedConnection && !this.connections.includes(this.selectedConnection)) {
       this._clearConnectionSelection({ redraw: false });
@@ -133,8 +355,8 @@ export class NodeEditor {
 
     this._redrawNodes();
     this._drawConnections();
-    if (persist) {
-      this.persistGraph();
+    if (persist && changed) {
+      this._markDirty();
     }
   }
 
@@ -147,6 +369,9 @@ export class NodeEditor {
 
   _renderPalette() {
     this.paletteEl.innerHTML = '';
+    this._hidePaletteContextMenu();
+    this.paletteEl.classList.add('palette-tree');
+
     if (!this.library.length) {
       const empty = document.createElement('div');
       empty.className = 'empty-state';
@@ -155,33 +380,585 @@ export class NodeEditor {
       return;
     }
 
-    const groups = this.library.reduce((acc, def) => {
-      const category = def.category || 'Custom';
-      acc[category] = acc[category] || [];
-      acc[category].push(def);
-      return acc;
-    }, {});
+    const content = this._renderDirectory(this.paletteState, { isRoot: true });
+    this.paletteEl.appendChild(content);
+    if (!this.paletteDropIndicator) {
+      this.paletteDropIndicator = document.createElement('div');
+      this.paletteDropIndicator.className = 'palette-drop-indicator hidden';
+    } else {
+      this.paletteDropIndicator.classList.add('hidden');
+    }
+    this.paletteEl.appendChild(this.paletteDropIndicator);
 
-    Object.entries(groups).forEach(([category, defs]) => {
-      const container = document.createElement('section');
-      container.className = 'node-category';
-      const heading = document.createElement('h2');
-      heading.textContent = category;
-      container.appendChild(heading);
+    if (!this._paletteContextMenuBound) {
+      this.paletteEl.addEventListener('contextmenu', (event) => this._handlePaletteContextMenu(event));
+      this._paletteContextMenuBound = true;
+    }
+  }
 
-      defs.forEach((def) => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'node-button';
-        button.textContent = def.label;
-        button.addEventListener('click', () => {
-          const position = { x: 60, y: 60 + this.nodeCount * 40 };
-          this._createNode(def, position);
-        });
-        container.appendChild(button);
+  _renderDirectory(directory, { isRoot = false } = {}) {
+    const container = document.createElement('div');
+    container.className = isRoot ? 'palette-root' : 'palette-directory';
+    container.dataset.id = directory.id;
+    container.dataset.type = 'directory';
+
+    if (!isRoot) {
+      const header = document.createElement('div');
+      header.className = 'palette-directory-header';
+      header.textContent = directory.name;
+      header.dataset.id = directory.id;
+      header.draggable = true;
+      header.addEventListener('dragstart', (event) => this._onPaletteDragStart(event, directory));
+      header.addEventListener('dragend', () => this._resetPaletteDrag());
+      header.addEventListener('dragover', (event) =>
+        this._onPaletteDragOver(event, { id: directory.id, type: 'directory' })
+      );
+      header.addEventListener('drop', (event) =>
+        this._onPaletteDrop(event, { id: directory.id, type: 'directory' })
+      );
+      container.appendChild(header);
+    }
+
+    const childrenContainer = document.createElement('div');
+    childrenContainer.className = 'palette-children';
+    childrenContainer.dataset.parentId = directory.id;
+    childrenContainer.addEventListener('dragover', (event) =>
+      this._onPaletteDragOver(event, { id: directory.id, type: 'container' })
+    );
+    childrenContainer.addEventListener('drop', (event) =>
+      this._onPaletteDrop(event, { id: directory.id, type: 'container' })
+    );
+
+    (directory.children || []).forEach((child) => {
+      if (child.type === 'directory') {
+        childrenContainer.appendChild(this._renderDirectory(child));
+      } else if (child.type === 'node') {
+        const nodeButton = this._renderPaletteNode(child);
+        if (nodeButton) {
+          childrenContainer.appendChild(nodeButton);
+        }
+      }
+    });
+
+    container.appendChild(childrenContainer);
+    return container;
+  }
+
+  _renderPaletteNode(item) {
+    const definition = this.library.find((def) => def.id === item.nodeId);
+    if (!definition) return null;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'node-button palette-node';
+    button.textContent = definition.label;
+    button.dataset.id = item.id;
+    button.dataset.nodeId = item.nodeId;
+    button.dataset.type = 'node';
+    button.draggable = true;
+    button.addEventListener('click', () => {
+      const position = { x: 60, y: 60 + this.nodeCount * 40 };
+      this._createNode(definition, position);
+    });
+    button.addEventListener('dragstart', (event) => this._onPaletteDragStart(event, item));
+    button.addEventListener('dragend', () => this._resetPaletteDrag());
+    button.addEventListener('dragover', (event) =>
+      this._onPaletteDragOver(event, { id: item.id, type: 'node' })
+    );
+    button.addEventListener('drop', (event) => this._onPaletteDrop(event, { id: item.id, type: 'node' }));
+    return button;
+  }
+
+  _ensurePaletteIndicator() {
+    if (!this.paletteDropIndicator) {
+      this.paletteDropIndicator = document.createElement('div');
+      this.paletteDropIndicator.className = 'palette-drop-indicator hidden';
+      this.paletteEl.appendChild(this.paletteDropIndicator);
+    }
+    return this.paletteDropIndicator;
+  }
+
+  _onPaletteDragStart(event, item) {
+    if (!item?.id) return;
+    this.paletteDragState = {
+      itemId: item.id,
+      itemType: item.type,
+      dropTarget: null,
+    };
+    if (event.dataTransfer) {
+      try {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', item.id);
+      } catch (error) {
+        // Ignore dataTransfer errors (e.g., unsupported operations)
+      }
+    }
+  }
+
+  _onPaletteDragOver(event, target) {
+    if (!this.paletteDragState || !target?.id) return;
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'move';
+    }
+
+    const indicator = this._ensurePaletteIndicator();
+    const paletteRect = this.paletteEl.getBoundingClientRect();
+    const rect = event.currentTarget.getBoundingClientRect();
+
+    if (target.type === 'container') {
+      const children = Array.from(event.currentTarget.children).filter((child) =>
+        child.matches('.palette-directory, .palette-node')
+      );
+      indicator.classList.remove('hidden');
+
+      if (!children.length) {
+        indicator.style.width = `${rect.width}px`;
+        indicator.style.left = `${rect.left - paletteRect.left}px`;
+        indicator.style.top = `${rect.top - paletteRect.top}px`;
+        this.paletteDragState.dropTarget = {
+          id: target.id,
+          type: 'directory',
+          position: 'into',
+        };
+        return;
+      }
+
+      const cursorY = event.clientY;
+      let placed = false;
+      for (const child of children) {
+        const childRect = child.getBoundingClientRect();
+        const before = cursorY < childRect.top + childRect.height / 2;
+        if (before) {
+          indicator.style.width = `${childRect.width}px`;
+          indicator.style.left = `${childRect.left - paletteRect.left}px`;
+          indicator.style.top = `${childRect.top - paletteRect.top}px`;
+          this.paletteDragState.dropTarget = {
+            id: child.dataset.id,
+            type: child.dataset.type === 'directory' ? 'directory' : 'node',
+            position: 'before',
+          };
+          placed = true;
+          break;
+        }
+      }
+
+      if (!placed) {
+        const lastChild = children[children.length - 1];
+        const lastRect = lastChild.getBoundingClientRect();
+        indicator.style.width = `${lastRect.width}px`;
+        indicator.style.left = `${lastRect.left - paletteRect.left}px`;
+        indicator.style.top = `${lastRect.top - paletteRect.top + lastRect.height}px`;
+        this.paletteDragState.dropTarget = {
+          id: lastChild.dataset.id,
+          type: lastChild.dataset.type === 'directory' ? 'directory' : 'node',
+          position: 'after',
+        };
+      }
+      return;
+    }
+
+    if (target.type === 'directory' && this.paletteDragState.itemType === 'node') {
+      const directoryEl = event.currentTarget.closest('[data-type="directory"]');
+      const childrenContainer = directoryEl?.querySelector(':scope > .palette-children');
+      const children = childrenContainer
+        ? Array.from(childrenContainer.children).filter((child) =>
+            child.matches('.palette-directory, .palette-node')
+          )
+        : [];
+      if (children.length) {
+        const lastRect = children[children.length - 1].getBoundingClientRect();
+        indicator.style.left = `${lastRect.left - paletteRect.left}px`;
+        indicator.style.width = `${lastRect.width}px`;
+        indicator.style.top = `${lastRect.top - paletteRect.top + lastRect.height}px`;
+      } else if (childrenContainer) {
+        const containerRect = childrenContainer.getBoundingClientRect();
+        indicator.style.left = `${containerRect.left - paletteRect.left}px`;
+        indicator.style.width = `${containerRect.width}px`;
+        indicator.style.top = `${containerRect.top - paletteRect.top}px`;
+      } else {
+        indicator.style.left = `${rect.left - paletteRect.left}px`;
+        indicator.style.width = `${rect.width}px`;
+        indicator.style.top = `${rect.top - paletteRect.top + rect.height}px`;
+      }
+      indicator.classList.remove('hidden');
+      this.paletteDragState.dropTarget = {
+        id: target.id,
+        type: 'directory',
+        position: 'into',
+      };
+      return;
+    }
+
+    const offsetY = event.clientY - rect.top;
+    const position = offsetY < rect.height / 2 ? 'before' : 'after';
+    indicator.classList.remove('hidden');
+    indicator.style.width = `${rect.width}px`;
+    indicator.style.left = `${rect.left - paletteRect.left}px`;
+    indicator.style.top = `${rect.top - paletteRect.top + (position === 'after' ? rect.height : 0)}px`;
+    this.paletteDragState.dropTarget = {
+      id: target.id,
+      type: target.type,
+      position,
+    };
+  }
+
+  _onPaletteDrop(event, target) {
+    if (!this.paletteDragState) return;
+    event.preventDefault();
+    const dropTarget =
+      this.paletteDragState.dropTarget ||
+      (target?.id
+        ? {
+            id: target.id,
+            type: target.type,
+            position: target.type === 'container' ? 'into' : 'after',
+          }
+        : null);
+    if (!dropTarget) {
+      this._resetPaletteDrag();
+      return;
+    }
+    const { itemId } = this.paletteDragState;
+    const moved = this._movePaletteItem(itemId, dropTarget.id, dropTarget.position);
+    if (moved) {
+      this._savePaletteState();
+      this._renderPalette();
+    }
+    this._resetPaletteDrag();
+  }
+
+  _movePaletteItem(itemId, targetId, position) {
+    if (!itemId || !targetId || itemId === targetId) return false;
+    const item = this._findPaletteItem(itemId);
+    if (!item) return false;
+    if (position === 'into') {
+      const targetDir = this._findDirectoryById(targetId);
+      if (!targetDir || itemId === targetId) return false;
+      if (item.type === 'directory' && this._isDescendant(itemId, targetId)) {
+        return false;
+      }
+      const originParent = this._findParentOf(itemId) || this.paletteState;
+      originParent.children = (originParent.children || []).filter((child) => child.id !== itemId);
+      targetDir.children = targetDir.children || [];
+      targetDir.children.push(item);
+      return true;
+    }
+
+    const targetItem = this._findPaletteItem(targetId);
+    if (!targetItem) return false;
+    if (item.type === 'directory' && this._isDescendant(itemId, targetId)) {
+      return false;
+    }
+    const originParent = this._findParentOf(itemId) || this.paletteState;
+    const targetParent = this._findParentOf(targetId) || this.paletteState;
+    if (!originParent || !targetParent) return false;
+
+    const originIndex = (originParent.children || []).findIndex((child) => child.id === itemId);
+    if (originIndex === -1) return false;
+    const [removed] = originParent.children.splice(originIndex, 1);
+    let targetIndex = (targetParent.children || []).findIndex((child) => child.id === targetId);
+    if (targetIndex === -1) return false;
+    if (originParent === targetParent && originIndex < targetIndex) {
+      targetIndex -= 1;
+    }
+    const insertIndex = position === 'before' ? targetIndex : targetIndex + 1;
+    targetParent.children.splice(insertIndex, 0, removed);
+    return true;
+  }
+
+  _resetPaletteDrag() {
+    this.paletteDragState = null;
+    this._hidePaletteDropIndicator();
+  }
+
+  _hidePaletteDropIndicator() {
+    if (this.paletteDropIndicator) {
+      this.paletteDropIndicator.classList.add('hidden');
+    }
+  }
+
+  _handlePaletteContextMenu(event) {
+    if (!this.paletteEl.contains(event.target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const directoryHeader = event.target.closest('.palette-directory-header');
+    const directoryContainer = event.target.closest('[data-type="directory"]');
+    const nodeButton = event.target.closest('.palette-node');
+    const childrenContainer = event.target.closest('.palette-children');
+
+    const parentId = directoryHeader?.dataset.id || childrenContainer?.dataset.parentId || nodeButton?.closest('.palette-children')?.dataset.parentId || directoryContainer?.dataset.id || this.paletteState.id;
+    const directoryId = directoryHeader?.dataset.id;
+    const nodeId = nodeButton?.dataset.id;
+
+    const options = [];
+
+    if (parentId) {
+      options.push({
+        label: 'ディレクトリを作成',
+        action: () => this._promptCreateDirectory(parentId),
       });
+    }
 
-      this.paletteEl.appendChild(container);
+    if (directoryId && directoryId !== this.paletteState.id) {
+      options.push({
+        label: 'ディレクトリを削除',
+        action: () => this._confirmAndRemovePaletteItem(directoryId, { type: 'directory' }),
+        variant: 'danger',
+      });
+    }
+
+    if (nodeId) {
+      options.push({
+        label: 'ノードを削除',
+        action: () => this._confirmAndRemovePaletteItem(nodeId, { type: 'node' }),
+        variant: 'danger',
+      });
+    }
+
+    this._showPaletteContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      options,
+    });
+  }
+
+  _promptCreateDirectory(parentId) {
+    const name = prompt('新しいディレクトリ名を入力してください');
+    if (!name) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    this._createDirectory(parentId, trimmed);
+  }
+
+  _confirmAndRemovePaletteItem(itemId, { type } = {}) {
+    if (!itemId) return;
+    if (type === 'directory') {
+      const ok = confirm('このディレクトリとすべての子要素を削除しますか？');
+      if (!ok) return;
+    } else if (type === 'node') {
+      const ok = confirm('このノードをパレットから削除しますか？');
+      if (!ok) return;
+    }
+    this._removePaletteItem(itemId);
+  }
+
+  _removePaletteItem(itemId) {
+    if (!itemId || itemId === this.paletteState.id) return false;
+    const parent = this._findParentOf(itemId);
+    if (!parent || !Array.isArray(parent.children)) return false;
+    const index = parent.children.findIndex((child) => child.id === itemId);
+    if (index === -1) return false;
+    parent.children.splice(index, 1);
+    this._savePaletteState();
+    this._renderPalette();
+    return true;
+  }
+
+  _setupPaletteContextMenu() {
+    if (this.paletteMenu) return;
+    const menu = document.createElement('div');
+    menu.className = 'palette-context-menu hidden';
+    menu.addEventListener('contextmenu', (event) => event.preventDefault());
+    menu.addEventListener('pointerdown', (event) => event.stopPropagation());
+    document.body.appendChild(menu);
+    this.paletteMenu = menu;
+    this._paletteMenuOutsideHandler = (event) => {
+      if (!this.paletteMenu) return;
+      if (!event.target.closest('.palette-context-menu')) {
+        this._hidePaletteContextMenu();
+      }
+    };
+    document.addEventListener('pointerdown', this._paletteMenuOutsideHandler);
+  }
+
+  _showPaletteContextMenu({ x, y, options }) {
+    if (!this.paletteMenu) return;
+    if (!options || !options.length) {
+      this._hidePaletteContextMenu();
+      return;
+    }
+
+    this.paletteMenu.innerHTML = '';
+    const list = document.createElement('div');
+    list.className = 'palette-context-options';
+
+    options.forEach((option) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = option.label;
+      if (option.variant === 'danger') {
+        button.classList.add('danger');
+      }
+      button.addEventListener('click', () => {
+        option.action?.();
+        this._hidePaletteContextMenu();
+      });
+      list.appendChild(button);
+    });
+
+    this.paletteMenu.appendChild(list);
+    this.paletteMenu.classList.remove('hidden');
+    this.paletteMenu.style.left = `${x}px`;
+    this.paletteMenu.style.top = `${y}px`;
+
+    requestAnimationFrame(() => {
+      if (!this.paletteMenu) return;
+      const rect = this.paletteMenu.getBoundingClientRect();
+      const margin = 6;
+      let posX = Math.min(x, window.innerWidth - rect.width - margin);
+      let posY = Math.min(y, window.innerHeight - rect.height - margin);
+      posX = Math.max(margin, posX);
+      posY = Math.max(margin, posY);
+      this.paletteMenu.style.left = `${posX}px`;
+      this.paletteMenu.style.top = `${posY}px`;
+    });
+  }
+
+  _hidePaletteContextMenu() {
+    if (!this.paletteMenu) return;
+    this.paletteMenu.classList.add('hidden');
+  }
+
+  _startSelection(event, { additive = false } = {}) {
+    if (event.button !== 0) {
+      return;
+    }
+    const rect = this.nodeLayer.getBoundingClientRect();
+    const startX = event.clientX - rect.left;
+    const startY = event.clientY - rect.top;
+    this.selectionState = {
+      pointerId: event.pointerId,
+      startX,
+      startY,
+      currentX: startX,
+      currentY: startY,
+      additive,
+    };
+    if (!additive) {
+      this._clearNodeSelection();
+    }
+    this._clearPreviewSelection();
+    if (this.selectionOverlay) {
+      this.selectionOverlay.remove();
+    }
+    this.selectionOverlay = document.createElement('div');
+    this.selectionOverlay.className = 'selection-rect';
+    this.nodeLayer.appendChild(this.selectionOverlay);
+    this._updateSelectionOverlay();
+    if (this.nodeLayer.setPointerCapture) {
+      try {
+        this.nodeLayer.setPointerCapture(event.pointerId);
+      } catch (error) {
+        // Ignore pointer capture errors
+      }
+    }
+  }
+
+  _updateSelection(event) {
+    if (!this.selectionState) return;
+    if (this.selectionState.pointerId && event.pointerId && event.pointerId !== this.selectionState.pointerId) {
+      return;
+    }
+    const rect = this.nodeLayer.getBoundingClientRect();
+    this.selectionState.currentX = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
+    this.selectionState.currentY = Math.min(Math.max(event.clientY - rect.top, 0), rect.height);
+    this._updateSelectionOverlay();
+    this._previewSelection();
+  }
+
+  _endSelection(event) {
+    if (!this.selectionState) return;
+    if (this.selectionState.pointerId && event.pointerId && event.pointerId !== this.selectionState.pointerId) {
+      return;
+    }
+    const state = this.selectionState;
+    this.selectionState = null;
+    if (this.nodeLayer.releasePointerCapture) {
+      try {
+        this.nodeLayer.releasePointerCapture(event.pointerId);
+      } catch (error) {
+        // Ignore release errors
+      }
+    }
+    if (this.selectionOverlay) {
+      this.selectionOverlay.remove();
+      this.selectionOverlay = null;
+    }
+    const added = this._finalizeSelection(state);
+    this._clearPreviewSelection();
+    if (added.length || !state.additive) {
+      this._applySelectionStyles();
+    }
+  }
+
+  _updateSelectionOverlay() {
+    if (!this.selectionOverlay || !this.selectionState) return;
+    const { startX, startY, currentX, currentY } = this.selectionState;
+    const left = Math.min(startX, currentX);
+    const top = Math.min(startY, currentY);
+    const width = Math.abs(currentX - startX);
+    const height = Math.abs(currentY - startY);
+    this.selectionOverlay.style.left = `${left}px`;
+    this.selectionOverlay.style.top = `${top}px`;
+    this.selectionOverlay.style.width = `${width}px`;
+    this.selectionOverlay.style.height = `${height}px`;
+  }
+
+  _previewSelection() {
+    if (!this.selectionState) return;
+    const ids = this._collectNodesInSelection(this.selectionState);
+    const idSet = new Set(ids);
+    this.nodeLayer.querySelectorAll('.node').forEach((nodeEl) => {
+      nodeEl.classList.toggle('selecting', idSet.has(nodeEl.dataset.id));
+    });
+  }
+
+  _clearPreviewSelection() {
+    this.nodeLayer.querySelectorAll('.node.selecting').forEach((nodeEl) =>
+      nodeEl.classList.remove('selecting')
+    );
+  }
+
+  _collectNodesInSelection(state) {
+    if (!state) return [];
+    const { startX, startY, currentX, currentY } = state;
+    const x1 = Math.min(startX, currentX);
+    const x2 = Math.max(startX, currentX);
+    const y1 = Math.min(startY, currentY);
+    const y2 = Math.max(startY, currentY);
+    const layerRect = this.nodeLayer.getBoundingClientRect();
+    const selected = [];
+    this.nodeLayer.querySelectorAll('.node').forEach((nodeEl) => {
+      const rect = nodeEl.getBoundingClientRect();
+      const left = rect.left - layerRect.left;
+      const top = rect.top - layerRect.top;
+      const right = left + rect.width;
+      const bottom = top + rect.height;
+      const intersects = right >= x1 && left <= x2 && bottom >= y1 && top <= y2;
+      if (intersects) {
+        selected.push(nodeEl.dataset.id);
+      }
+    });
+    return selected;
+  }
+
+  _finalizeSelection(state) {
+    const ids = this._collectNodesInSelection(state);
+    if (!state.additive) {
+      this.selectedNodes.clear();
+    }
+    ids.forEach((id) => {
+      if (id) {
+        this.selectedNodes.add(id);
+      }
+    });
+    return ids;
+  }
+
+  _applySelectionStyles() {
+    this.nodeLayer.querySelectorAll('.node').forEach((nodeEl) => {
+      nodeEl.classList.toggle('selected', this.selectedNodes.has(nodeEl.dataset.id));
     });
   }
 
@@ -191,8 +968,8 @@ export class NodeEditor {
     this.nodes.set(nodeId, node);
     this._renderNode(node);
     this._drawConnections();
-    this._selectNode(nodeId);
-    this.persistGraph();
+    this._selectNode(nodeId, { additive: false });
+    this._markDirty();
     return node;
   }
 
@@ -233,10 +1010,21 @@ export class NodeEditor {
     });
 
     el.addEventListener('pointerdown', (event) => {
-      this._selectNode(node.id);
+      const withCtrl = event.ctrlKey || event.metaKey;
+      const additive = withCtrl || event.shiftKey;
+      let remainedSelected = true;
+      if (!(this.selectedNodes.has(node.id) && this.selectedNodes.size > 1 && !additive)) {
+        remainedSelected = this._selectNode(node.id, { additive, toggle: withCtrl });
+      }
+      if (additive) {
+        if (!remainedSelected) {
+          return;
+        }
+        return;
+      }
       this._startDrag(event, node.id);
     });
-    el.addEventListener('focus', () => this._selectNode(node.id));
+    el.addEventListener('focus', () => this._selectNode(node.id, { additive: false, toggle: false }));
 
     this.nodeLayer.appendChild(el);
   }
@@ -246,11 +1034,13 @@ export class NodeEditor {
     this.nodes.forEach((node) => {
       this._renderNode(node);
     });
-    if (this.selectedNodeId && !this.nodes.has(this.selectedNodeId)) {
-      this.selectedNodeId = null;
-    } else if (this.selectedNodeId) {
-      this._selectNode(this.selectedNodeId);
-    }
+    const existingIds = new Set(this.nodes.keys());
+    Array.from(this.selectedNodes).forEach((id) => {
+      if (!existingIds.has(id)) {
+        this.selectedNodes.delete(id);
+      }
+    });
+    this._applySelectionStyles();
   }
 
   _createPort(type, name, nodeId) {
@@ -294,10 +1084,27 @@ export class NodeEditor {
     this.draggedNode = node;
     const targetEl = event.currentTarget;
     const pointerId = event.pointerId;
-    const rect = targetEl.getBoundingClientRect();
     const parentRect = this.nodeLayer.getBoundingClientRect();
-    this.dragOffset.x = event.clientX - rect.left;
-    this.dragOffset.y = event.clientY - rect.top;
+    this.dragOriginParentRect = parentRect;
+    this.dragStartClient = { x: event.clientX, y: event.clientY };
+    const ids = this.selectedNodes.size ? Array.from(this.selectedNodes) : [nodeId];
+    this.draggingGroup = ids
+      .map((id) => {
+        const item = this.nodes.get(id);
+        if (!item) return null;
+        const el = this.nodeLayer.querySelector(`.node[data-id="${id}"]`);
+        const width = el?.offsetWidth ?? 200;
+        const height = el?.offsetHeight ?? 120;
+        return {
+          node: item,
+          element: el,
+          width,
+          height,
+          start: { ...item.position },
+        };
+      })
+      .filter(Boolean);
+    this.dragMoved = false;
     if (targetEl.setPointerCapture) {
       try {
         targetEl.setPointerCapture(pointerId);
@@ -322,27 +1129,38 @@ export class NodeEditor {
 
     targetEl?.addEventListener('pointermove', moveHandler);
     targetEl?.addEventListener('pointerup', upHandler);
-    this.dragOriginParentRect = parentRect;
   }
 
   _dragNode(event) {
-    if (!this.draggedNode) return;
+    if (!this.draggingGroup || !this.draggingGroup.length) return;
     const parentRect = this.dragOriginParentRect || this.nodeLayer.getBoundingClientRect();
-    let x = event.clientX - parentRect.left - this.dragOffset.x;
-    let y = event.clientY - parentRect.top - this.dragOffset.y;
-    x = Math.max(0, Math.min(x, parentRect.width - 160));
-    y = Math.max(0, Math.min(y, parentRect.height - 80));
-    this.draggedNode.position = { x, y };
-    const el = this.nodeLayer.querySelector(`.node[data-id="${this.draggedNode.id}"]`);
-    if (el) {
-      el.style.transform = `translate(${x}px, ${y}px)`;
-    }
+    const deltaX = event.clientX - this.dragStartClient.x;
+    const deltaY = event.clientY - this.dragStartClient.y;
+    this.dragMoved = true;
+    this.draggingGroup.forEach((item) => {
+      let x = item.start.x + deltaX;
+      let y = item.start.y + deltaY;
+      const maxX = Math.max(0, parentRect.width - item.width);
+      const maxY = Math.max(0, parentRect.height - item.height);
+      x = Math.max(0, Math.min(x, maxX));
+      y = Math.max(0, Math.min(y, maxY));
+      item.node.position = { x, y };
+      if (item.element) {
+        item.element.style.transform = `translate(${x}px, ${y}px)`;
+      }
+    });
     this._drawConnections();
   }
 
   _endDrag() {
+    if (this.draggingGroup && this.dragMoved) {
+      this._markDirty();
+    }
     this.draggedNode = null;
+    this.draggingGroup = null;
     this.dragOriginParentRect = null;
+    this.dragStartClient = null;
+    this.dragMoved = false;
   }
 
   _beginConnection(event, nodeId, portName, portType) {
@@ -452,7 +1270,7 @@ export class NodeEditor {
       this.connections.push({ fromNode, fromPort, toNode, toPort });
     }
     this._drawConnections();
-    this.persistGraph();
+    this._markDirty();
   }
 
   _getPortPosition(nodeId, portName, type) {
@@ -565,7 +1383,7 @@ export class NodeEditor {
     this.connections = this.connections.filter((connection) => connection !== target);
     this._clearConnectionSelection({ redraw: false });
     this._drawConnections();
-    this.persistGraph();
+    this._markDirty();
   }
 
   _openPropertyEditor(nodeId) {
@@ -665,7 +1483,7 @@ export class NodeEditor {
       });
       this.propertyDialog.close();
       this.propertyForm.reset();
-      this.persistGraph();
+      this._markDirty();
     };
 
     this.propertyForm.onreset = () => {
@@ -787,12 +1605,35 @@ export class NodeEditor {
       nodes: Array.from(this.nodes.values()).map((node) => node.serialize()),
       connections: this.connections.map((connection) => ({ ...connection })),
     };
-    this.persistence.save(graph);
+    try {
+      const result = this.persistence.save(graph);
+      if (result && typeof result.then === 'function') {
+        result
+          .then((success) => {
+            if (success !== false) {
+              this._clearDirty();
+            }
+          })
+          .catch((error) => console.warn('Failed to save graph', error));
+      } else if (result !== false) {
+        this._clearDirty();
+      }
+    } catch (error) {
+      console.error('Failed to invoke persistence.save', error);
+    }
   }
 
   restoreGraph() {
     if (!this.persistence?.load) return;
-    const data = this.persistence.load();
+    const result = this.persistence.load();
+    if (result && typeof result.then === 'function') {
+      result.then((data) => this._applyPersistedGraph(data));
+    } else {
+      this._applyPersistedGraph(result);
+    }
+  }
+
+  _applyPersistedGraph(data) {
     if (!data) return;
     this.clearGraph(false);
     const defs = Object.fromEntries(this.library.map((def) => [def.id, def]));
@@ -807,6 +1648,7 @@ export class NodeEditor {
     this.connections = (data.connections || []).map((connection) => ({ ...connection }));
     this._drawConnections();
     this.resize();
+    this._clearDirty();
   }
 
   clearGraph(clearStorage = true) {
@@ -818,10 +1660,16 @@ export class NodeEditor {
     if (clearStorage && this.persistence?.clear) {
       this.persistence.clear();
     }
-    this.selectedNodeId = null;
+    this.selectedNodes.clear();
+    this._applySelectionStyles();
     this.selectedConnection = null;
     this.connectionPaths = [];
     this._hidePortContextMenu();
+    if (clearStorage) {
+      this._markDirty();
+    } else {
+      this._clearDirty();
+    }
   }
 
   _bindPointerEvents() {
@@ -834,13 +1682,25 @@ export class NodeEditor {
           this._selectConnection(connection);
           return;
         }
-      }
-      if (!isNodeTarget) {
+        const additive = event.shiftKey || event.ctrlKey || event.metaKey;
         this._clearConnectionSelection({ redraw: false });
-        this._clearNodeSelection();
+        if (!additive) {
+          this._clearNodeSelection();
+        }
+        this._startSelection(event, { additive });
+      } else {
+        this._clearConnectionSelection({ redraw: false });
       }
       this.activeConnection = null;
       this._drawConnections();
+    });
+
+    this.nodeLayer.addEventListener('pointermove', (event) => {
+      this._updateSelection(event);
+    });
+
+    window.addEventListener('pointerup', (event) => {
+      this._endSelection(event);
     });
 
     document.addEventListener('pointerdown', (event) => {
@@ -860,25 +1720,30 @@ export class NodeEditor {
         event.preventDefault();
         if (this.selectedConnection) {
           this._removeSelectedConnection();
-        } else if (this.selectedNodeId) {
-          this._removeNode(this.selectedNodeId);
+        } else if (this.selectedNodes.size) {
+          this._removeNodes(Array.from(this.selectedNodes));
         }
       }
     });
   }
 
-  _selectNode(nodeId) {
-    if (this.selectedNodeId === nodeId) {
-      this._clearConnectionSelection();
-      return;
+  _selectNode(nodeId, { additive = false, toggle = true } = {}) {
+    if (!nodeId) return false;
+    this._clearConnectionSelection({ redraw: false });
+    let isSelected = true;
+    if (additive) {
+      if (toggle && this.selectedNodes.has(nodeId)) {
+        this.selectedNodes.delete(nodeId);
+        isSelected = false;
+      } else {
+        this.selectedNodes.add(nodeId);
+      }
+    } else {
+      this.selectedNodes.clear();
+      this.selectedNodes.add(nodeId);
     }
-    this._clearConnectionSelection();
-    this._clearNodeSelection();
-    const el = this.nodeLayer.querySelector(`.node[data-id="${nodeId}"]`);
-    if (el) {
-      el.classList.add('selected');
-      this.selectedNodeId = nodeId;
-    }
+    this._applySelectionStyles();
+    return isSelected;
   }
 
   _clearSelection() {
@@ -887,15 +1752,17 @@ export class NodeEditor {
   }
 
   _clearNodeSelection() {
-    if (!this.selectedNodeId) return;
-    const el = this.nodeLayer.querySelector(`.node[data-id="${this.selectedNodeId}"]`);
-    if (el) {
-      el.classList.remove('selected');
-    }
-    this.selectedNodeId = null;
+    if (!this.selectedNodes.size) return;
+    this.selectedNodes.clear();
+    this._applySelectionStyles();
   }
 
-  _removeNode(nodeId) {
+  _removeNodes(nodeIds) {
+    nodeIds.forEach((nodeId) => this._removeNode(nodeId, { markDirty: false }));
+    this._markDirty();
+  }
+
+  _removeNode(nodeId, { markDirty = true } = {}) {
     const node = this.nodes.get(nodeId);
     if (!node) return;
     this.nodes.delete(nodeId);
@@ -910,11 +1777,14 @@ export class NodeEditor {
       this._clearConnectionSelection({ redraw: false });
     }
     this._drawConnections();
-    if (this.selectedNodeId === nodeId) {
-      this._clearNodeSelection();
+    if (this.selectedNodes.has(nodeId)) {
+      this.selectedNodes.delete(nodeId);
+      this._applySelectionStyles();
     }
     this._hidePortContextMenu();
-    this.persistGraph();
+    if (markDirty) {
+      this._markDirty();
+    }
   }
 
   _setupPortContextMenu() {
