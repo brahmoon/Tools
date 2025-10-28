@@ -1,6 +1,5 @@
 import { wrapPowerShellScript } from './psTemplate.js';
 
-const HANDLE_RADIUS = 6;
 const PALETTE_STORAGE_KEY = 'nodeflow.palette.v1';
 const PALETTE_NODE_PREFIX = 'node:';
 const PALETTE_DIRECTORY_PREFIX = 'dir:';
@@ -86,13 +85,19 @@ export class NodeEditor {
     this._paletteMenuOutsideHandler = null;
 
     this.ctx = this.connectionLayer.getContext('2d');
+    this.editorEl = nodeLayer?.parentElement || null;
+    this.zoom = 1;
+    this.minZoom = 0.5;
+    this.maxZoom = 2.5;
 
     this._setupPortContextMenu();
     this._setupPaletteContextMenu();
+    this._bindWheelEvents();
     this._bindPointerEvents();
     this._bindKeyboardEvents();
     this.setLibrary(library || [], { persist: false });
     this.resize();
+    this._applyZoom();
   }
 
   _makePaletteId(prefix) {
@@ -162,6 +167,91 @@ export class NodeEditor {
       console.warn('Failed to load palette state', error);
       return this._createDefaultPaletteState(initialLibrary);
     }
+  }
+
+  _worldToScreen(point) {
+    const safeZoom = this.zoom || 1;
+    const target = point && typeof point === 'object' ? point : { x: 0, y: 0 };
+    const x = Number.isFinite(target.x) ? target.x : 0;
+    const y = Number.isFinite(target.y) ? target.y : 0;
+    return {
+      x: x * safeZoom,
+      y: y * safeZoom,
+    };
+  }
+
+  _screenToWorld(point) {
+    const safeZoom = this.zoom || 1;
+    const target = point && typeof point === 'object' ? point : { x: 0, y: 0 };
+    const x = Number.isFinite(target.x) ? target.x : 0;
+    const y = Number.isFinite(target.y) ? target.y : 0;
+    return {
+      x: x / safeZoom,
+      y: y / safeZoom,
+    };
+  }
+
+  _getNodeTransform(position) {
+    const { x, y } = this._worldToScreen(position || { x: 0, y: 0 });
+    return `translate(${x}px, ${y}px) scale(${this.zoom})`;
+  }
+
+  _updateNodeElementTransform(element, position) {
+    if (!element) return;
+    element.style.transform = this._getNodeTransform(position);
+  }
+
+  _normalizePosition(position, fallback = { x: 0, y: 0 }) {
+    const base = fallback || { x: 0, y: 0 };
+    if (!position || typeof position !== 'object') {
+      return { ...base };
+    }
+    const x = Number.isFinite(position.x) ? position.x : base.x;
+    const y = Number.isFinite(position.y) ? position.y : base.y;
+    return { x, y };
+  }
+
+  _applyZoom() {
+    if (this.editorEl) {
+      const gridSize = 48 * (this.zoom || 1);
+      this.editorEl.style.setProperty('--grid-size', `${gridSize}px`);
+    }
+    this.nodeLayer
+      ?.querySelectorAll('.node')
+      .forEach((nodeEl) => {
+        const node = this.nodes.get(nodeEl.dataset.id);
+        if (node) {
+          this._updateNodeElementTransform(nodeEl, node.position);
+        }
+      });
+  }
+
+  _setZoom(value) {
+    const target = Number.isFinite(value) ? value : this.zoom;
+    const clamped = Math.min(this.maxZoom, Math.max(this.minZoom, target));
+    if (Math.abs(clamped - this.zoom) < 0.001) {
+      return;
+    }
+    this.zoom = clamped;
+    this._applyZoom();
+    this._drawConnections();
+  }
+
+  _bindWheelEvents() {
+    const target = this.editorEl || this.nodeLayer;
+    if (!target) return;
+    target.addEventListener(
+      'wheel',
+      (event) => {
+        if (event.deltaY === 0) {
+          return;
+        }
+        event.preventDefault();
+        const factor = Math.exp(-event.deltaY * 0.0015);
+        this._setZoom(this.zoom * factor);
+      },
+      { passive: false }
+    );
   }
 
   _savePaletteState() {
@@ -484,7 +574,7 @@ export class NodeEditor {
     button.dataset.type = 'node';
     button.draggable = true;
     button.addEventListener('click', () => {
-      const position = { x: 60, y: 60 + this.nodeCount * 40 };
+      const position = this._screenToWorld({ x: 60, y: 60 + this.nodeCount * 40 });
       this._createNode(definition, position);
     });
     button.addEventListener('dragstart', (event) => this._onPaletteDragStart(event, item));
@@ -1474,8 +1564,10 @@ export class NodeEditor {
   }
 
   _createNode(definition, position) {
+    const fallback = this._screenToWorld({ x: 60, y: 60 + this.nodeCount * 40 });
+    const nodePosition = this._normalizePosition(position, fallback);
     const nodeId = `${definition.id}_${++this.nodeCount}`;
-    const node = new Node(definition, nodeId, position);
+    const node = new Node(definition, nodeId, nodePosition);
     this.nodes.set(nodeId, node);
     this._renderNode(node);
     this._drawConnections();
@@ -1488,7 +1580,7 @@ export class NodeEditor {
     const fragment = this.nodeTemplate.content.cloneNode(true);
     const el = fragment.querySelector('.node');
     el.dataset.id = node.id;
-    el.style.transform = `translate(${node.position.x}px, ${node.position.y}px)`;
+    this._updateNodeElementTransform(el, node.position);
     el.querySelector('.node-label').textContent = node.definition.label;
     const configBtn = el.querySelector('.node-config');
     configBtn.addEventListener('click', (event) => {
@@ -1654,19 +1746,20 @@ export class NodeEditor {
   _dragNode(event) {
     if (!this.draggingGroup || !this.draggingGroup.length) return;
     const parentRect = this.dragOriginParentRect || this.nodeLayer.getBoundingClientRect();
-    const deltaX = event.clientX - this.dragStartClient.x;
-    const deltaY = event.clientY - this.dragStartClient.y;
+    const safeZoom = this.zoom || 1;
+    const deltaX = (event.clientX - this.dragStartClient.x) / safeZoom;
+    const deltaY = (event.clientY - this.dragStartClient.y) / safeZoom;
     this.dragMoved = true;
     this.draggingGroup.forEach((item) => {
       let x = item.start.x + deltaX;
       let y = item.start.y + deltaY;
-      const maxX = Math.max(0, parentRect.width - item.width);
-      const maxY = Math.max(0, parentRect.height - item.height);
+      const maxX = Math.max(0, parentRect.width / safeZoom - item.width);
+      const maxY = Math.max(0, parentRect.height / safeZoom - item.height);
       x = Math.max(0, Math.min(x, maxX));
       y = Math.max(0, Math.min(y, maxY));
       item.node.position = { x, y };
       if (item.element) {
-        item.element.style.transform = `translate(${x}px, ${y}px)`;
+        this._updateNodeElementTransform(item.element, item.node.position);
       }
     });
     this._drawConnections();
@@ -1691,9 +1784,11 @@ export class NodeEditor {
     if (!nodeEl) return;
     const portEl = event.currentTarget;
     const portRect = portEl.getBoundingClientRect();
+    const radiusX = portRect.width / 2;
+    const radiusY = portRect.height / 2;
     const start = {
-      x: portRect.left - rect.left + HANDLE_RADIUS,
-      y: portRect.top - rect.top + HANDLE_RADIUS,
+      x: portRect.left - rect.left + radiusX,
+      y: portRect.top - rect.top + radiusY,
     };
 
     this.activeConnection = {
@@ -1801,9 +1896,11 @@ export class NodeEditor {
     if (!handle) return null;
     const rect = handle.getBoundingClientRect();
     const parentRect = this.nodeLayer.getBoundingClientRect();
+    const radiusX = rect.width / 2;
+    const radiusY = rect.height / 2;
     return {
-      x: rect.left - parentRect.left + HANDLE_RADIUS,
-      y: rect.top - parentRect.top + HANDLE_RADIUS,
+      x: rect.left - parentRect.left + radiusX,
+      y: rect.top - parentRect.top + radiusY,
     };
   }
 
@@ -1815,10 +1912,12 @@ export class NodeEditor {
 
     this.connectionPaths = [];
 
+    const zoomFactor = this.zoom || 1;
+
     const createPath = (start, end) => {
       if (!start || !end) return null;
       const path = new Path2D();
-      const cpOffset = Math.abs(end.x - start.x) * 0.5 + 60;
+      const cpOffset = Math.abs(end.x - start.x) * 0.5 + 60 * zoomFactor;
       path.moveTo(start.x, start.y);
       path.bezierCurveTo(start.x + cpOffset, start.y, end.x - cpOffset, end.y, end.x, end.y);
       return path;
@@ -1831,9 +1930,10 @@ export class NodeEditor {
       if (!path) return;
       const selected = this.selectedConnection === connection;
       this.ctx.strokeStyle = selected ? 'rgba(249, 115, 22, 0.9)' : 'rgba(59, 130, 246, 0.8)';
-      this.ctx.lineWidth = selected ? 3.2 : 2.2;
+      const widthScale = Math.max(1, (selected ? 3.2 : 2.2) * zoomFactor);
+      this.ctx.lineWidth = widthScale;
       this.ctx.shadowColor = selected ? 'rgba(249, 115, 22, 0.4)' : 'rgba(59, 130, 246, 0.35)';
-      this.ctx.shadowBlur = selected ? 12 : 6;
+      this.ctx.shadowBlur = (selected ? 12 : 6) * zoomFactor;
       this.ctx.stroke(path);
       this.ctx.shadowBlur = 0;
       this.connectionPaths.push({ path, connection });
@@ -1854,9 +1954,9 @@ export class NodeEditor {
       const path = createPath(origin, target);
       if (path) {
         this.ctx.strokeStyle = 'rgba(77, 124, 255, 0.6)';
-        this.ctx.lineWidth = 3;
+        this.ctx.lineWidth = Math.max(1, 3 * zoomFactor);
         this.ctx.shadowColor = 'rgba(77, 124, 255, 0.4)';
-        this.ctx.shadowBlur = 14;
+        this.ctx.shadowBlur = 14 * zoomFactor;
         this.ctx.stroke(path);
         this.ctx.shadowBlur = 0;
       }
@@ -1869,7 +1969,8 @@ export class NodeEditor {
     const x = clientX - rect.left;
     const y = clientY - rect.top;
     const previousWidth = this.ctx.lineWidth;
-    this.ctx.lineWidth = 6;
+    const detectWidth = Math.max(6, 6 * (this.zoom || 1));
+    this.ctx.lineWidth = detectWidth;
     for (let index = this.connectionPaths.length - 1; index >= 0; index -= 1) {
       const { path, connection } = this.connectionPaths[index];
       if (this.ctx.isPointInStroke(path, x, y)) {
@@ -2358,11 +2459,12 @@ export class NodeEditor {
         button.textContent = def.label;
         button.addEventListener('click', () => {
           const layerRect = this.nodeLayer.getBoundingClientRect();
-          const position = {
-            x: Math.max(16, Math.min(x, layerRect.width - 200)),
-            y: Math.max(16, Math.min(y, layerRect.height - 120)),
+          const safeZoom = this.zoom || 1;
+          const screenPosition = {
+            x: Math.max(16, Math.min(x, Math.max(16, layerRect.width - 200 * safeZoom))),
+            y: Math.max(16, Math.min(y, Math.max(16, layerRect.height - 120 * safeZoom))),
           };
-          const newNode = this._createNode(def, position);
+          const newNode = this._createNode(def, this._screenToWorld(screenPosition));
           if (source.portType === 'output') {
             const inputName = (def.inputs || []).find((input) => input === source.portName);
             if (inputName) {
