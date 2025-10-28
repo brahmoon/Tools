@@ -1,5 +1,6 @@
 import { wrapPowerShellScript } from './psTemplate.js';
 
+const HANDLE_RADIUS = 6;
 const PALETTE_STORAGE_KEY = 'nodeflow.palette.v1';
 const PALETTE_NODE_PREFIX = 'node:';
 const PALETTE_DIRECTORY_PREFIX = 'dir:';
@@ -85,21 +86,13 @@ export class NodeEditor {
     this._paletteMenuOutsideHandler = null;
 
     this.ctx = this.connectionLayer.getContext('2d');
-    this.editorEl = nodeLayer?.parentElement || null;
-    this.zoom = 1;
-    this.minZoom = 0.5;
-    this.maxZoom = 2.5;
-    this.viewOrigin = { x: 0, y: 0 };
-    this._viewOriginInitialized = false;
 
     this._setupPortContextMenu();
     this._setupPaletteContextMenu();
-    this._bindWheelEvents();
     this._bindPointerEvents();
     this._bindKeyboardEvents();
     this.setLibrary(library || [], { persist: false });
     this.resize();
-    this._applyZoom();
   }
 
   _makePaletteId(prefix) {
@@ -169,145 +162,6 @@ export class NodeEditor {
       console.warn('Failed to load palette state', error);
       return this._createDefaultPaletteState(initialLibrary);
     }
-  }
-
-  _worldToScreen(point) {
-    const safeZoom = this.zoom || 1;
-    const target = point && typeof point === 'object' ? point : { x: 0, y: 0 };
-    const x = Number.isFinite(target.x) ? target.x : 0;
-    const y = Number.isFinite(target.y) ? target.y : 0;
-    const origin = this.viewOrigin || { x: 0, y: 0 };
-    return {
-      x: (x + origin.x) * safeZoom,
-      y: (y + origin.y) * safeZoom,
-    };
-  }
-
-  _screenToWorld(point) {
-    const safeZoom = this.zoom || 1;
-    const target = point && typeof point === 'object' ? point : { x: 0, y: 0 };
-    const x = Number.isFinite(target.x) ? target.x : 0;
-    const y = Number.isFinite(target.y) ? target.y : 0;
-    const origin = this.viewOrigin || { x: 0, y: 0 };
-    return {
-      x: x / safeZoom - origin.x,
-      y: y / safeZoom - origin.y,
-    };
-  }
-
-  _getNodeTransform(position) {
-    const { x, y } = this._worldToScreen(position || { x: 0, y: 0 });
-    return `translate(${x}px, ${y}px) scale(${this.zoom})`;
-  }
-
-  _updateNodeElementTransform(element, position) {
-    if (!element) return;
-    element.style.transform = this._getNodeTransform(position);
-  }
-
-  _normalizePosition(position, fallback = { x: 0, y: 0 }) {
-    const base = fallback || { x: 0, y: 0 };
-    if (!position || typeof position !== 'object') {
-      return { ...base };
-    }
-    const x = Number.isFinite(position.x) ? position.x : base.x;
-    const y = Number.isFinite(position.y) ? position.y : base.y;
-    return { x, y };
-  }
-
-  _clampToRange(value, min, max) {
-    if (!Number.isFinite(value)) {
-      return Number.isFinite(min) ? min : 0;
-    }
-    let lower = Number.isFinite(min) ? min : value;
-    let upper = Number.isFinite(max) ? max : value;
-    if (lower > upper) {
-      [lower, upper] = [upper, lower];
-    }
-    return Math.max(lower, Math.min(value, upper));
-  }
-
-  _ensureViewOrigin({ rect, force = false } = {}) {
-    if (!this.nodeLayer) return false;
-    const bounds = rect || this.nodeLayer.getBoundingClientRect();
-    if (!bounds?.width || !bounds?.height) {
-      return false;
-    }
-    if (!this._viewOriginInitialized || force) {
-      const safeZoom = this.zoom || 1;
-      const marginX = Math.max(96, Math.min(bounds.width * 0.25, 320)) / safeZoom;
-      const marginY = Math.max(96, Math.min(bounds.height * 0.25, 240)) / safeZoom;
-      this.viewOrigin = { x: marginX, y: marginY };
-      this._viewOriginInitialized = true;
-      return true;
-    }
-    return false;
-  }
-
-  _applyZoom() {
-    if (this.editorEl) {
-      const safeZoom = this.zoom || 1;
-      const gridSize = 48 * safeZoom;
-      const origin = this.viewOrigin || { x: 0, y: 0 };
-      this.editorEl.style.setProperty('--grid-size', `${gridSize}px`);
-      this.editorEl.style.setProperty('--grid-offset-x', `${-origin.x * safeZoom}px`);
-      this.editorEl.style.setProperty('--grid-offset-y', `${-origin.y * safeZoom}px`);
-    }
-    this.nodeLayer
-      ?.querySelectorAll('.node')
-      .forEach((nodeEl) => {
-        const node = this.nodes.get(nodeEl.dataset.id);
-        if (node) {
-          this._updateNodeElementTransform(nodeEl, node.position);
-        }
-      });
-  }
-
-  _setZoom(value, { pivot } = {}) {
-    const target = Number.isFinite(value) ? value : this.zoom;
-    const clamped = Math.min(this.maxZoom, Math.max(this.minZoom, target));
-    if (Math.abs(clamped - this.zoom) < 0.001) {
-      return;
-    }
-    const previousZoom = this.zoom || 1;
-    if (pivot && typeof pivot === 'object') {
-      const origin = this.viewOrigin || { x: 0, y: 0 };
-      const pivotX = Number.isFinite(pivot.x) ? pivot.x : 0;
-      const pivotY = Number.isFinite(pivot.y) ? pivot.y : 0;
-      const nextZoom = clamped || 1;
-      const newOriginX = pivotX / nextZoom - pivotX / previousZoom + origin.x;
-      const newOriginY = pivotY / nextZoom - pivotY / previousZoom + origin.y;
-      this.viewOrigin = { x: newOriginX, y: newOriginY };
-      this._viewOriginInitialized = true;
-    }
-    this.zoom = clamped;
-    this._applyZoom();
-    this._drawConnections();
-  }
-
-  _bindWheelEvents() {
-    const target = this.editorEl || this.nodeLayer;
-    if (!target) return;
-    target.addEventListener(
-      'wheel',
-      (event) => {
-        if (event.deltaY === 0) {
-          return;
-        }
-        event.preventDefault();
-        const factor = Math.exp(-event.deltaY * 0.0015);
-        const rect = this.nodeLayer?.getBoundingClientRect() ||
-          this.editorEl?.getBoundingClientRect();
-        const pivot = rect
-          ? {
-              x: event.clientX - rect.left,
-              y: event.clientY - rect.top,
-            }
-          : null;
-        this._setZoom(this.zoom * factor, { pivot });
-      },
-      { passive: false }
-    );
   }
 
   _savePaletteState() {
@@ -514,14 +368,9 @@ export class NodeEditor {
   }
 
   resize() {
-    if (!this.nodeLayer || !this.connectionLayer) return;
     const rect = this.nodeLayer.getBoundingClientRect();
     this.connectionLayer.width = rect.width;
     this.connectionLayer.height = rect.height;
-    const originUpdated = this._ensureViewOrigin({ rect });
-    if (originUpdated) {
-      this._applyZoom();
-    }
     this._drawConnections();
   }
 
@@ -635,11 +484,7 @@ export class NodeEditor {
     button.dataset.type = 'node';
     button.draggable = true;
     button.addEventListener('click', () => {
-      const base = this._worldToScreen({ x: 0, y: 0 });
-      const position = this._screenToWorld({
-        x: base.x + 60,
-        y: base.y + 60 + this.nodeCount * 40,
-      });
+      const position = { x: 60, y: 60 + this.nodeCount * 40 };
       this._createNode(definition, position);
     });
     button.addEventListener('dragstart', (event) => this._onPaletteDragStart(event, item));
@@ -1629,14 +1474,8 @@ export class NodeEditor {
   }
 
   _createNode(definition, position) {
-    const base = this._worldToScreen({ x: 0, y: 0 });
-    const fallback = this._screenToWorld({
-      x: base.x + 60,
-      y: base.y + 60 + this.nodeCount * 40,
-    });
-    const nodePosition = this._normalizePosition(position, fallback);
     const nodeId = `${definition.id}_${++this.nodeCount}`;
-    const node = new Node(definition, nodeId, nodePosition);
+    const node = new Node(definition, nodeId, position);
     this.nodes.set(nodeId, node);
     this._renderNode(node);
     this._drawConnections();
@@ -1649,7 +1488,7 @@ export class NodeEditor {
     const fragment = this.nodeTemplate.content.cloneNode(true);
     const el = fragment.querySelector('.node');
     el.dataset.id = node.id;
-    this._updateNodeElementTransform(el, node.position);
+    el.style.transform = `translate(${node.position.x}px, ${node.position.y}px)`;
     el.querySelector('.node-label').textContent = node.definition.label;
     const configBtn = el.querySelector('.node-config');
     configBtn.addEventListener('click', (event) => {
@@ -1815,23 +1654,19 @@ export class NodeEditor {
   _dragNode(event) {
     if (!this.draggingGroup || !this.draggingGroup.length) return;
     const parentRect = this.dragOriginParentRect || this.nodeLayer.getBoundingClientRect();
-    const safeZoom = this.zoom || 1;
-    const deltaX = (event.clientX - this.dragStartClient.x) / safeZoom;
-    const deltaY = (event.clientY - this.dragStartClient.y) / safeZoom;
-    const origin = this.viewOrigin || { x: 0, y: 0 };
+    const deltaX = event.clientX - this.dragStartClient.x;
+    const deltaY = event.clientY - this.dragStartClient.y;
     this.dragMoved = true;
     this.draggingGroup.forEach((item) => {
       let x = item.start.x + deltaX;
       let y = item.start.y + deltaY;
-      const minX = -origin.x;
-      const minY = -origin.y;
-      const maxX = parentRect.width / safeZoom - item.width - origin.x;
-      const maxY = parentRect.height / safeZoom - item.height - origin.y;
-      x = this._clampToRange(x, minX, maxX);
-      y = this._clampToRange(y, minY, maxY);
+      const maxX = Math.max(0, parentRect.width - item.width);
+      const maxY = Math.max(0, parentRect.height - item.height);
+      x = Math.max(0, Math.min(x, maxX));
+      y = Math.max(0, Math.min(y, maxY));
       item.node.position = { x, y };
       if (item.element) {
-        this._updateNodeElementTransform(item.element, item.node.position);
+        item.element.style.transform = `translate(${x}px, ${y}px)`;
       }
     });
     this._drawConnections();
@@ -1856,11 +1691,9 @@ export class NodeEditor {
     if (!nodeEl) return;
     const portEl = event.currentTarget;
     const portRect = portEl.getBoundingClientRect();
-    const radiusX = portRect.width / 2;
-    const radiusY = portRect.height / 2;
     const start = {
-      x: portRect.left - rect.left + radiusX,
-      y: portRect.top - rect.top + radiusY,
+      x: portRect.left - rect.left + HANDLE_RADIUS,
+      y: portRect.top - rect.top + HANDLE_RADIUS,
     };
 
     this.activeConnection = {
@@ -1968,11 +1801,9 @@ export class NodeEditor {
     if (!handle) return null;
     const rect = handle.getBoundingClientRect();
     const parentRect = this.nodeLayer.getBoundingClientRect();
-    const radiusX = rect.width / 2;
-    const radiusY = rect.height / 2;
     return {
-      x: rect.left - parentRect.left + radiusX,
-      y: rect.top - parentRect.top + radiusY,
+      x: rect.left - parentRect.left + HANDLE_RADIUS,
+      y: rect.top - parentRect.top + HANDLE_RADIUS,
     };
   }
 
@@ -1984,12 +1815,10 @@ export class NodeEditor {
 
     this.connectionPaths = [];
 
-    const zoomFactor = this.zoom || 1;
-
     const createPath = (start, end) => {
       if (!start || !end) return null;
       const path = new Path2D();
-      const cpOffset = Math.abs(end.x - start.x) * 0.5 + 60 * zoomFactor;
+      const cpOffset = Math.abs(end.x - start.x) * 0.5 + 60;
       path.moveTo(start.x, start.y);
       path.bezierCurveTo(start.x + cpOffset, start.y, end.x - cpOffset, end.y, end.x, end.y);
       return path;
@@ -2002,10 +1831,9 @@ export class NodeEditor {
       if (!path) return;
       const selected = this.selectedConnection === connection;
       this.ctx.strokeStyle = selected ? 'rgba(249, 115, 22, 0.9)' : 'rgba(59, 130, 246, 0.8)';
-      const widthScale = Math.max(1, (selected ? 3.2 : 2.2) * zoomFactor);
-      this.ctx.lineWidth = widthScale;
+      this.ctx.lineWidth = selected ? 3.2 : 2.2;
       this.ctx.shadowColor = selected ? 'rgba(249, 115, 22, 0.4)' : 'rgba(59, 130, 246, 0.35)';
-      this.ctx.shadowBlur = (selected ? 12 : 6) * zoomFactor;
+      this.ctx.shadowBlur = selected ? 12 : 6;
       this.ctx.stroke(path);
       this.ctx.shadowBlur = 0;
       this.connectionPaths.push({ path, connection });
@@ -2026,9 +1854,9 @@ export class NodeEditor {
       const path = createPath(origin, target);
       if (path) {
         this.ctx.strokeStyle = 'rgba(77, 124, 255, 0.6)';
-        this.ctx.lineWidth = Math.max(1, 3 * zoomFactor);
+        this.ctx.lineWidth = 3;
         this.ctx.shadowColor = 'rgba(77, 124, 255, 0.4)';
-        this.ctx.shadowBlur = 14 * zoomFactor;
+        this.ctx.shadowBlur = 14;
         this.ctx.stroke(path);
         this.ctx.shadowBlur = 0;
       }
@@ -2041,8 +1869,7 @@ export class NodeEditor {
     const x = clientX - rect.left;
     const y = clientY - rect.top;
     const previousWidth = this.ctx.lineWidth;
-    const detectWidth = Math.max(6, 6 * (this.zoom || 1));
-    this.ctx.lineWidth = detectWidth;
+    this.ctx.lineWidth = 6;
     for (let index = this.connectionPaths.length - 1; index >= 0; index -= 1) {
       const { path, connection } = this.connectionPaths[index];
       if (this.ctx.isPointInStroke(path, x, y)) {
@@ -2297,13 +2124,6 @@ export class NodeEditor {
     const graph = {
       nodes: Array.from(this.nodes.values()).map((node) => node.serialize()),
       connections: this.connections.map((connection) => ({ ...connection })),
-      viewport: {
-        zoom: Number.isFinite(this.zoom) ? this.zoom : 1,
-        origin: {
-          x: Number.isFinite(this.viewOrigin?.x) ? this.viewOrigin.x : 0,
-          y: Number.isFinite(this.viewOrigin?.y) ? this.viewOrigin.y : 0,
-        },
-      },
     };
     try {
       const result = this.persistence.save(graph);
@@ -2335,22 +2155,7 @@ export class NodeEditor {
 
   _applyPersistedGraph(data) {
     if (!data) return;
-    this.clearGraph(false, { resetViewport: false });
-    let viewportApplied = false;
-    if (data.viewport && typeof data.viewport === 'object') {
-      const { zoom, origin } = data.viewport;
-      if (Number.isFinite(zoom)) {
-        this.zoom = Math.min(this.maxZoom, Math.max(this.minZoom, zoom));
-      }
-      if (origin && Number.isFinite(origin.x) && Number.isFinite(origin.y)) {
-        this.viewOrigin = { x: origin.x, y: origin.y };
-        this._viewOriginInitialized = true;
-        viewportApplied = true;
-      }
-    } else {
-      this._viewOriginInitialized = false;
-      this.viewOrigin = { x: 0, y: 0 };
-    }
+    this.clearGraph(false);
     const defs = Object.fromEntries(this.library.map((def) => [def.id, def]));
     data.nodes.forEach((nodeData) => {
       const def = defs[nodeData.type];
@@ -2361,19 +2166,16 @@ export class NodeEditor {
       this._renderNode(node);
     });
     this.connections = (data.connections || []).map((connection) => ({ ...connection }));
-    if (!viewportApplied) {
-      this._ensureViewOrigin({ force: false });
-    }
-    this.resize();
-    this._applyZoom();
     this._drawConnections();
+    this.resize();
     this._clearDirty();
   }
 
-  clearGraph(clearStorage = true, { resetViewport = true } = {}) {
+  clearGraph(clearStorage = true) {
     this.nodes.clear();
     this.connections = [];
     this.nodeLayer.innerHTML = '';
+    this._drawConnections();
     this.nodeCount = 0;
     if (clearStorage && this.persistence?.clear) {
       this.persistence.clear();
@@ -2383,13 +2185,6 @@ export class NodeEditor {
     this.selectedConnection = null;
     this.connectionPaths = [];
     this._hidePortContextMenu();
-    if (resetViewport) {
-      this._viewOriginInitialized = false;
-      this.viewOrigin = { x: 0, y: 0 };
-      this._ensureViewOrigin({ force: true });
-    }
-    this._applyZoom();
-    this._drawConnections();
     if (clearStorage) {
       this._markDirty();
     } else {
@@ -2563,12 +2358,11 @@ export class NodeEditor {
         button.textContent = def.label;
         button.addEventListener('click', () => {
           const layerRect = this.nodeLayer.getBoundingClientRect();
-          const safeZoom = this.zoom || 1;
-          const screenPosition = {
-            x: Math.max(16, Math.min(x, Math.max(16, layerRect.width - 200 * safeZoom))),
-            y: Math.max(16, Math.min(y, Math.max(16, layerRect.height - 120 * safeZoom))),
+          const position = {
+            x: Math.max(16, Math.min(x, layerRect.width - 200)),
+            y: Math.max(16, Math.min(y, layerRect.height - 120)),
           };
-          const newNode = this._createNode(def, this._screenToWorld(screenPosition));
+          const newNode = this._createNode(def, position);
           if (source.portType === 'output') {
             const inputName = (def.inputs || []).find((input) => input === source.portName);
             if (inputName) {
