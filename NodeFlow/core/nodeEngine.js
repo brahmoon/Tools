@@ -1496,12 +1496,6 @@ export class NodeEditor {
       this._openPropertyEditor(node.id);
     });
 
-    const removeBtn = el.querySelector('.node-remove');
-    removeBtn?.addEventListener('click', (event) => {
-      event.stopPropagation();
-      this._removeNode(node.id);
-    });
-
     const designerBtn = el.querySelector('.node-open-designer');
     if (designerBtn) {
       if (this.onEditCustomNode && node.definition.specId) {
@@ -1592,7 +1586,6 @@ export class NodeEditor {
     if (
       event.target.closest('.handle') ||
       event.target.classList.contains('node-config') ||
-      event.target.classList.contains('node-remove') ||
       event.target.closest('.node-open-designer')
     ) {
       return;
