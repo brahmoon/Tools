@@ -154,7 +154,6 @@ button.primary:focus-visible {
   flex-direction: column;
   min-height: 0;
   position: relative;
-  z-index: 3;
 }
 
 .palette {
@@ -484,27 +483,20 @@ button.primary:focus-visible {
 
 .editor {
   position: relative;
-  --grid-size: 48px;
   background: repeating-linear-gradient(
       0deg,
       rgba(76, 106, 186, 0.08) 0,
       rgba(76, 106, 186, 0.08) 1px,
       transparent 1px,
-      transparent var(--grid-size)
+      transparent 48px
     ),
     repeating-linear-gradient(
       90deg,
       rgba(76, 106, 186, 0.08) 0,
       rgba(76, 106, 186, 0.08) 1px,
       transparent 1px,
-      transparent var(--grid-size)
+      transparent 48px
     );
-  z-index: 0;
-}
-
-.editor.is-panning,
-.editor.is-panning * {
-  cursor: grabbing !important;
 }
 
 #connection-layer {
@@ -529,7 +521,6 @@ button.primary:focus-visible {
   padding: 0.75rem;
   cursor: default;
   user-select: none;
-  transform-origin: top left;
 }
 
 .node.selected {
