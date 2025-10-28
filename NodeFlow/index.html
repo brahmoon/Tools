@@ -203,6 +203,7 @@
       import { exportScript } from './export/scriptExport.js';
 
       const paletteEl = document.getElementById('node-palette');
+      const editorEl = document.getElementById('editor-area');
       const nodeLayer = document.getElementById('node-layer');
       const connectionLayer = document.getElementById('connection-layer');
       const propertyDialog = document.getElementById('property-editor');
@@ -638,6 +639,7 @@
 
       editor = new NodeEditor({
         paletteEl,
+        editorEl,
         nodeLayer,
         connectionLayer,
         propertyDialog,
