@@ -1496,14 +1496,6 @@ export class NodeEditor {
       this._openPropertyEditor(node.id);
     });
 
-    const removeBtn = el.querySelector('.node-remove');
-    if (removeBtn) {
-      removeBtn.addEventListener('click', (event) => {
-        event.stopPropagation();
-        this._removeNode(node.id);
-      });
-    }
-
     const designerBtn = el.querySelector('.node-open-designer');
     if (designerBtn) {
       if (this.onEditCustomNode && node.definition.specId) {
