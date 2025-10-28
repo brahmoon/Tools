@@ -572,23 +572,12 @@ button.primary:focus-visible {
   color: var(--accent);
 }
 
-.node-config,
-.node-remove {
+.node-config {
   border: none;
   background: transparent;
   box-shadow: none;
   font-size: 1.1rem;
   padding: 0.1rem 0.35rem;
-  transition: color 120ms ease;
-}
-
-.node-remove {
-  color: inherit;
-}
-
-.node-remove:hover,
-.node-remove:focus-visible {
-  color: #c44f4f;
 }
 
 .node-ports {
