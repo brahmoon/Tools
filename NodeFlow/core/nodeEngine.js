@@ -1496,6 +1496,14 @@ export class NodeEditor {
       this._openPropertyEditor(node.id);
     });
 
+    const deleteBtn = el.querySelector('.node-delete');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        this._removeNode(node.id);
+      });
+    }
+
     const designerBtn = el.querySelector('.node-open-designer');
     if (designerBtn) {
       if (this.onEditCustomNode && node.definition.specId) {
@@ -1586,6 +1594,7 @@ export class NodeEditor {
     if (
       event.target.closest('.handle') ||
       event.target.classList.contains('node-config') ||
+      event.target.classList.contains('node-delete') ||
       event.target.closest('.node-open-designer')
     ) {
       return;

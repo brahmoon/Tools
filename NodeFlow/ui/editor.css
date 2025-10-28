@@ -580,6 +580,21 @@ button.primary:focus-visible {
   padding: 0.1rem 0.35rem;
 }
 
+.node-delete {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  font-size: 1rem;
+  padding: 0.1rem 0.35rem;
+  color: var(--muted);
+  transition: color 120ms ease;
+}
+
+.node-delete:hover,
+.node-delete:focus-visible {
+  color: var(--danger-text);
+}
+
 .node-ports {
   display: flex;
   gap: 1rem;
