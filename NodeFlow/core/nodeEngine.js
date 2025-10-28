@@ -1109,6 +1109,29 @@ export class NodeEditor {
       return;
     }
 
+    const directoryHeader = event.target.closest('.palette-directory-header');
+    if (directoryHeader?.dataset?.id) {
+      const directoryId = directoryHeader.dataset.id;
+      const options = [
+        {
+          label: 'ディレクトリを作成',
+          action: () => this._promptCreateDirectory(directoryId),
+        },
+        {
+          label: 'ディレクトリを削除',
+          action: () => this._confirmAndRemovePaletteItem(directoryId, { type: 'directory' }),
+          variant: 'danger',
+        },
+      ];
+
+      this._showPaletteContextMenu({
+        x: event.clientX,
+        y: event.clientY,
+        options,
+      });
+      return;
+    }
+
     const container = event.target.closest('.palette-children');
     const directoryElement = event.target.closest('.palette-directory');
     let parentId = container?.dataset.parentId || directoryElement?.dataset.id || null;
