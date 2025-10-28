@@ -35,6 +35,7 @@ class Node {
 export class NodeEditor {
   constructor({
     paletteEl,
+    editorEl,
     nodeLayer,
     connectionLayer,
     propertyDialog,
@@ -49,6 +50,7 @@ export class NodeEditor {
     persistence,
   }) {
     this.paletteEl = paletteEl;
+    this.editorEl = editorEl || nodeLayer?.parentElement || null;
     this.nodeLayer = nodeLayer;
     this.connectionLayer = connectionLayer;
     this.propertyDialog = propertyDialog;
@@ -78,19 +80,29 @@ export class NodeEditor {
     this.selectionOverlay = null;
     this.draggingGroup = null;
     this.dragMoved = false;
-    this.dragStartClient = null;
+    this.dragStartPoint = null;
+    this.dragOriginSize = null;
     this.paletteState = this._loadPaletteState(library || []);
     this.paletteDragState = null;
     this.paletteDropIndicator = null;
     this.paletteMenu = null;
     this._paletteMenuOutsideHandler = null;
 
+    this.zoom = 1;
+    this.minZoom = 0.5;
+    this.maxZoom = 2.5;
+    this.zoomStep = 0.1;
+
     this.ctx = this.connectionLayer.getContext('2d');
+
+    this._updateZoomStyles();
+
 
     this._setupPortContextMenu();
     this._setupPaletteContextMenu();
     this._bindPointerEvents();
     this._bindKeyboardEvents();
+    this._bindZoomEvents();
     this.setLibrary(library || [], { persist: false });
     this.resize();
   }
@@ -368,10 +380,81 @@ export class NodeEditor {
   }
 
   resize() {
-    const rect = this.nodeLayer.getBoundingClientRect();
-    this.connectionLayer.width = rect.width;
-    this.connectionLayer.height = rect.height;
+    const { width, height } = this._getLayerSize();
+    if (!this.connectionLayer) {
+      return;
+    }
+    this.connectionLayer.width = width;
+    this.connectionLayer.height = height;
+    this.connectionLayer.style.width = `${width}px`;
+    this.connectionLayer.style.height = `${height}px`;
     this._drawConnections();
+  }
+
+  setZoom(value) {
+    const clamped = Math.min(this.maxZoom, Math.max(this.minZoom, Number(value) || 1));
+    if (Math.abs(clamped - this.zoom) < 0.001) {
+      return;
+    }
+    this.zoom = clamped;
+    this._updateZoomStyles();
+    this._drawConnections();
+  }
+
+  _getLayerSize() {
+    if (!this.nodeLayer) {
+      return { width: 0, height: 0 };
+    }
+    return {
+      width: this.nodeLayer.offsetWidth || this.nodeLayer.clientWidth || 0,
+      height: this.nodeLayer.offsetHeight || this.nodeLayer.clientHeight || 0,
+    };
+  }
+
+  _getLayerPoint(clientX, clientY) {
+    if (!this.nodeLayer) {
+      return { x: 0, y: 0 };
+    }
+    const rect = this.nodeLayer.getBoundingClientRect();
+    return {
+      x: (clientX - rect.left) / this.zoom,
+      y: (clientY - rect.top) / this.zoom,
+    };
+  }
+
+  _getEventLayerPoint(event) {
+    return this._getLayerPoint(event.clientX, event.clientY);
+  }
+
+  _updateZoomStyles() {
+    if (this.nodeLayer) {
+      this.nodeLayer.style.transformOrigin = '0 0';
+      this.nodeLayer.style.transform = `scale(${this.zoom})`;
+    }
+    if (this.connectionLayer) {
+      this.connectionLayer.style.transformOrigin = '0 0';
+      this.connectionLayer.style.transform = `scale(${this.zoom})`;
+    }
+    if (this.editorEl) {
+      const baseGrid = 48;
+      this.editorEl.style.setProperty('--grid-size', `${baseGrid * this.zoom}px`);
+    }
+  }
+
+  _bindZoomEvents() {
+    if (!this.editorEl) return;
+    this.editorEl.addEventListener(
+      'wheel',
+      (event) => {
+        if (event.deltaY === 0) {
+          return;
+        }
+        event.preventDefault();
+        const direction = event.deltaY < 0 ? 1 : -1;
+        this.setZoom(this.zoom + direction * this.zoomStep);
+      },
+      { passive: false }
+    );
   }
 
   _renderPalette() {
@@ -1335,9 +1418,7 @@ export class NodeEditor {
     if (event.button !== 0) {
       return;
     }
-    const rect = this.nodeLayer.getBoundingClientRect();
-    const startX = event.clientX - rect.left;
-    const startY = event.clientY - rect.top;
+    const { x: startX, y: startY } = this._getEventLayerPoint(event);
     this.selectionState = {
       pointerId: event.pointerId,
       startX,
@@ -1371,9 +1452,10 @@ export class NodeEditor {
     if (this.selectionState.pointerId && event.pointerId && event.pointerId !== this.selectionState.pointerId) {
       return;
     }
-    const rect = this.nodeLayer.getBoundingClientRect();
-    this.selectionState.currentX = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
-    this.selectionState.currentY = Math.min(Math.max(event.clientY - rect.top, 0), rect.height);
+    const { width, height } = this._getLayerSize();
+    const point = this._getEventLayerPoint(event);
+    this.selectionState.currentX = Math.min(Math.max(point.x, 0), width);
+    this.selectionState.currentY = Math.min(Math.max(point.y, 0), height);
     this._updateSelectionOverlay();
     this._previewSelection();
   }
@@ -1438,14 +1520,14 @@ export class NodeEditor {
     const x2 = Math.max(startX, currentX);
     const y1 = Math.min(startY, currentY);
     const y2 = Math.max(startY, currentY);
-    const layerRect = this.nodeLayer.getBoundingClientRect();
     const selected = [];
     this.nodeLayer.querySelectorAll('.node').forEach((nodeEl) => {
       const rect = nodeEl.getBoundingClientRect();
-      const left = rect.left - layerRect.left;
-      const top = rect.top - layerRect.top;
-      const right = left + rect.width;
-      const bottom = top + rect.height;
+      const parentRect = this.nodeLayer.getBoundingClientRect();
+      const left = (rect.left - parentRect.left) / this.zoom;
+      const top = (rect.top - parentRect.top) / this.zoom;
+      const right = left + rect.width / this.zoom;
+      const bottom = top + rect.height / this.zoom;
       const intersects = right >= x1 && left <= x2 && bottom >= y1 && top <= y2;
       if (intersects) {
         selected.push(nodeEl.dataset.id);
@@ -1604,9 +1686,8 @@ export class NodeEditor {
     this.draggedNode = node;
     const targetEl = event.currentTarget;
     const pointerId = event.pointerId;
-    const parentRect = this.nodeLayer.getBoundingClientRect();
-    this.dragOriginParentRect = parentRect;
-    this.dragStartClient = { x: event.clientX, y: event.clientY };
+    this.dragOriginSize = this._getLayerSize();
+    this.dragStartPoint = this._getEventLayerPoint(event);
     const ids = this.selectedNodes.size ? Array.from(this.selectedNodes) : [nodeId];
     this.draggingGroup = ids
       .map((id) => {
@@ -1653,15 +1734,17 @@ export class NodeEditor {
 
   _dragNode(event) {
     if (!this.draggingGroup || !this.draggingGroup.length) return;
-    const parentRect = this.dragOriginParentRect || this.nodeLayer.getBoundingClientRect();
-    const deltaX = event.clientX - this.dragStartClient.x;
-    const deltaY = event.clientY - this.dragStartClient.y;
+    const parentSize = this.dragOriginSize || this._getLayerSize();
+    const startPoint = this.dragStartPoint || this._getEventLayerPoint(event);
+    const currentPoint = this._getEventLayerPoint(event);
+    const deltaX = currentPoint.x - startPoint.x;
+    const deltaY = currentPoint.y - startPoint.y;
     this.dragMoved = true;
     this.draggingGroup.forEach((item) => {
       let x = item.start.x + deltaX;
       let y = item.start.y + deltaY;
-      const maxX = Math.max(0, parentRect.width - item.width);
-      const maxY = Math.max(0, parentRect.height - item.height);
+      const maxX = Math.max(0, parentSize.width - item.width);
+      const maxY = Math.max(0, parentSize.height - item.height);
       x = Math.max(0, Math.min(x, maxX));
       y = Math.max(0, Math.min(y, maxY));
       item.node.position = { x, y };
@@ -1678,23 +1761,22 @@ export class NodeEditor {
     }
     this.draggedNode = null;
     this.draggingGroup = null;
-    this.dragOriginParentRect = null;
-    this.dragStartClient = null;
+    this.dragOriginSize = null;
+    this.dragStartPoint = null;
     this.dragMoved = false;
   }
 
   _beginConnection(event, nodeId, portName, portType) {
     event.stopPropagation();
     event.preventDefault();
-    const rect = this.nodeLayer.getBoundingClientRect();
     const nodeEl = this.nodeLayer.querySelector(`.node[data-id="${nodeId}"]`);
     if (!nodeEl) return;
     const portEl = event.currentTarget;
     const portRect = portEl.getBoundingClientRect();
-    const start = {
-      x: portRect.left - rect.left + HANDLE_RADIUS,
-      y: portRect.top - rect.top + HANDLE_RADIUS,
-    };
+    const start = this._getLayerPoint(
+      portRect.left + portRect.width / 2,
+      portRect.top + portRect.height / 2
+    );
 
     this.activeConnection = {
       fromNode: portType === 'output' ? nodeId : null,
@@ -1713,11 +1795,7 @@ export class NodeEditor {
 
   _trackConnection(event) {
     if (!this.activeConnection) return;
-    const rect = this.nodeLayer.getBoundingClientRect();
-    this.activeConnection.current = {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    };
+    this.activeConnection.current = this._getEventLayerPoint(event);
     this._drawConnections();
   }
 
@@ -1800,11 +1878,10 @@ export class NodeEditor {
     const handle = nodeEl.querySelector(selector);
     if (!handle) return null;
     const rect = handle.getBoundingClientRect();
-    const parentRect = this.nodeLayer.getBoundingClientRect();
-    return {
-      x: rect.left - parentRect.left + HANDLE_RADIUS,
-      y: rect.top - parentRect.top + HANDLE_RADIUS,
-    };
+    return this._getLayerPoint(
+      rect.left + rect.width / 2,
+      rect.top + rect.height / 2
+    );
   }
 
   _drawConnections() {
@@ -1865,11 +1942,9 @@ export class NodeEditor {
 
   _hitTestConnection(clientX, clientY) {
     if (!this.connectionPaths.length) return null;
-    const rect = this.connectionLayer.getBoundingClientRect();
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
+    const { x, y } = this._getLayerPoint(clientX, clientY);
     const previousWidth = this.ctx.lineWidth;
-    this.ctx.lineWidth = 6;
+    this.ctx.lineWidth = 6 / this.zoom;
     for (let index = this.connectionPaths.length - 1; index >= 0; index -= 1) {
       const { path, connection } = this.connectionPaths[index];
       if (this.ctx.isPointInStroke(path, x, y)) {
@@ -2330,11 +2405,18 @@ export class NodeEditor {
 
     const layerRect = this.nodeLayer.getBoundingClientRect();
     const portRect = event.currentTarget.getBoundingClientRect();
-    const offsetX = portType === 'output' ? 120 : -220;
-    let x = portRect.left - layerRect.left + offsetX;
-    let y = portRect.top - layerRect.top - 20;
-    x = Math.max(16, Math.min(x, layerRect.width - 220));
-    y = Math.max(16, Math.min(y, layerRect.height - 140));
+    const offsetX = (portType === 'output' ? 120 : -220) / this.zoom;
+    const offsetY = -20 / this.zoom;
+    const baseX = (portRect.left - layerRect.left) / this.zoom;
+    const baseY = (portRect.top - layerRect.top) / this.zoom;
+    const { width, height } = this._getLayerSize();
+    let x = baseX + offsetX;
+    let y = baseY + offsetY;
+    const menuWidth = 220;
+    const menuHeight = 140;
+    const margin = 16 / this.zoom;
+    x = Math.max(margin, Math.min(x, width - menuWidth));
+    y = Math.max(margin, Math.min(y, height - menuHeight));
 
     this._showPortContextMenu({ x, y, compatible, source: { nodeId, portName, portType } });
   }
@@ -2357,10 +2439,10 @@ export class NodeEditor {
         button.type = 'button';
         button.textContent = def.label;
         button.addEventListener('click', () => {
-          const layerRect = this.nodeLayer.getBoundingClientRect();
+          const { width: layerWidth, height: layerHeight } = this._getLayerSize();
           const position = {
-            x: Math.max(16, Math.min(x, layerRect.width - 200)),
-            y: Math.max(16, Math.min(y, layerRect.height - 120)),
+            x: Math.max(16, Math.min(x, layerWidth - 200)),
+            y: Math.max(16, Math.min(y, layerHeight - 120)),
           };
           const newNode = this._createNode(def, position);
           if (source.portType === 'output') {
