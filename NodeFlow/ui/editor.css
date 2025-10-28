@@ -483,20 +483,26 @@ button.primary:focus-visible {
 
 .editor {
   position: relative;
+  --grid-size: 48px;
+  --grid-offset-x: 0px;
+  --grid-offset-y: 0px;
   background: repeating-linear-gradient(
       0deg,
       rgba(76, 106, 186, 0.08) 0,
       rgba(76, 106, 186, 0.08) 1px,
       transparent 1px,
-      transparent 48px
+      transparent var(--grid-size)
     ),
     repeating-linear-gradient(
       90deg,
       rgba(76, 106, 186, 0.08) 0,
       rgba(76, 106, 186, 0.08) 1px,
       transparent 1px,
-      transparent 48px
+      transparent var(--grid-size)
     );
+  background-position:
+    var(--grid-offset-x) var(--grid-offset-y),
+    var(--grid-offset-x) var(--grid-offset-y);
 }
 
 #connection-layer {
@@ -521,6 +527,7 @@ button.primary:focus-visible {
   padding: 0.75rem;
   cursor: default;
   user-select: none;
+  transform-origin: top left;
 }
 
 .node.selected {
