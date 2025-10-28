@@ -447,26 +447,61 @@
         return saved;
       };
 
-      const deleteCustomNodeById = (specId) => {
-        const spec = findSpecById(specId);
-        if (!spec) {
-          return false;
+      const removeCustomNodeSpecs = (ids, { skipConfirm = false, silent = false } = {}) => {
+        const uniqueIds = Array.isArray(ids)
+          ? Array.from(new Set(ids.filter(Boolean)))
+          : [];
+        if (!uniqueIds.length) {
+          return { removedIds: [], cancelled: false };
         }
-        if (!confirm(`${spec.label} を削除しますか？`)) {
-          return false;
+        const specs = uniqueIds.map((id) => findSpecById(id)).filter(Boolean);
+        if (!specs.length) {
+          return { removedIds: [], cancelled: false };
         }
-        deleteCustomNodeSpec(specId);
-        showToast('カスタムノードを削除しました。');
+        if (!skipConfirm) {
+          const message =
+            specs.length === 1
+              ? `${specs[0].label} を削除しますか？`
+              : `${specs.length} 件のカスタムノードを削除しますか？`;
+          if (!confirm(message)) {
+            return { removedIds: [], cancelled: true };
+          }
+        }
+
+        specs.forEach((spec) => deleteCustomNodeSpec(spec.id));
         refreshLibrary();
-        if (originalId === specId) {
+
+        if (specs.some((spec) => spec.id === originalId)) {
           if (customSpecs.length) {
             loadSpecIntoForm(customSpecs[0]);
           } else {
             loadSpecIntoForm(createEmptySpec());
           }
         }
-        return true;
+
+        if (!silent) {
+          showToast(
+            specs.length === 1
+              ? 'カスタムノードを削除しました。'
+              : `${specs.length}件のカスタムノードを削除しました。`
+          );
+        }
+
+        return {
+          removedIds: specs.map((spec) => spec.id),
+          cancelled: false,
+        };
       };
+
+      const deleteCustomNodeById = (specId, options = {}) => {
+        const result = removeCustomNodeSpecs([specId], options);
+        if (result.cancelled) {
+          return false;
+        }
+        return result;
+      };
+
+      const deleteCustomNodesByIds = (ids, options = {}) => removeCustomNodeSpecs(ids, options);
 
       const loadSpecIntoForm = (spec, { fromSample = false } = {}) => {
         originalId = fromSample ? '' : spec.id || '';
@@ -614,7 +649,27 @@
           const [definition] = specsToDefinitions([saved]);
           return { id: saved.id, definition };
         },
-        onRemovePaletteNode: ({ definitionId }) => deleteCustomNodeById(definitionId),
+        onRemovePaletteNode: ({
+          definitionId,
+          definitionIds,
+          skipConfirm,
+          silent,
+        }) => {
+          if (Array.isArray(definitionIds) && definitionIds.length) {
+            const result = deleteCustomNodesByIds(definitionIds, {
+              skipConfirm,
+              silent,
+            });
+            if (result.cancelled) {
+              return false;
+            }
+            return { removedIds: result.removedIds };
+          }
+          return deleteCustomNodeById(definitionId, {
+            skipConfirm,
+            silent,
+          });
+        },
         persistence: {
           load: loadGraph,
           save: saveGraph,

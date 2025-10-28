@@ -1005,8 +1005,7 @@ export class NodeEditor {
     }
     try {
       if (!this.onRemovePaletteNode) {
-        this._confirmAndRemovePaletteItem(paletteItemId, { type: 'node' });
-        return;
+        return this._confirmAndRemovePaletteItem(paletteItemId, { type: 'node' });
       }
       const result = this.onRemovePaletteNode({
         paletteItemId,
@@ -1109,6 +1108,29 @@ export class NodeEditor {
       return;
     }
 
+    const directoryHeader = event.target.closest('.palette-directory-header');
+    if (directoryHeader?.dataset?.id) {
+      const directoryId = directoryHeader.dataset.id;
+      const options = [
+        {
+          label: 'ディレクトリを作成',
+          action: () => this._promptCreateDirectory(directoryId),
+        },
+        {
+          label: 'ディレクトリを削除',
+          action: () => this._confirmAndRemovePaletteItem(directoryId, { type: 'directory' }),
+          variant: 'danger',
+        },
+      ];
+
+      this._showPaletteContextMenu({
+        x: event.clientX,
+        y: event.clientY,
+        options,
+      });
+      return;
+    }
+
     const container = event.target.closest('.palette-children');
     const directoryElement = event.target.closest('.palette-directory');
     let parentId = container?.dataset.parentId || directoryElement?.dataset.id || null;
@@ -1142,16 +1164,18 @@ export class NodeEditor {
     this._createDirectory(parentId, trimmed);
   }
 
-  _confirmAndRemovePaletteItem(itemId, { type } = {}) {
-    if (!itemId) return;
+  async _confirmAndRemovePaletteItem(itemId, { type } = {}) {
+    if (!itemId) return false;
     if (type === 'directory') {
       const ok = confirm('このディレクトリとすべての子要素を削除しますか？');
-      if (!ok) return;
-    } else if (type === 'node') {
-      const ok = confirm('このノードをパレットから削除しますか？');
-      if (!ok) return;
+      if (!ok) return false;
+      return this._removePaletteDirectory(itemId);
     }
-    this._removePaletteItem(itemId);
+    if (type === 'node') {
+      const ok = confirm('このノードをパレットから削除しますか？');
+      if (!ok) return false;
+    }
+    return this._removePaletteItem(itemId);
   }
 
   _removePaletteItem(itemId) {
@@ -1163,6 +1187,82 @@ export class NodeEditor {
     parent.children.splice(index, 1);
     this._savePaletteState();
     this._renderPalette();
+    return true;
+  }
+
+  _collectDirectoryNodes(directory, accumulator = []) {
+    if (!directory) {
+      return accumulator;
+    }
+    const children = Array.isArray(directory.children) ? directory.children : [];
+    children.forEach((child) => {
+      if (!child) return;
+      if (child.type === 'node' && child.nodeId) {
+        accumulator.push({
+          paletteItemId: child.id,
+          definitionId: child.nodeId,
+        });
+        return;
+      }
+      if (child.type === 'directory') {
+        this._collectDirectoryNodes(child, accumulator);
+      }
+    });
+    return accumulator;
+  }
+
+  async _removePaletteDirectory(directoryId) {
+    if (!directoryId || directoryId === this.paletteState.id) {
+      return false;
+    }
+    const directory = this._findPaletteItem(directoryId);
+    if (!directory || directory.type !== 'directory') {
+      return false;
+    }
+
+    const nodes = this._collectDirectoryNodes(directory, []);
+    const seenDefinitionIds = new Set();
+    const definitionIds = [];
+    nodes.forEach((node) => {
+      if (!node || !node.definitionId || seenDefinitionIds.has(node.definitionId)) {
+        return;
+      }
+      seenDefinitionIds.add(node.definitionId);
+      definitionIds.push(node.definitionId);
+    });
+    let removedDefinitionIds = new Set(definitionIds);
+
+    if (this.onRemovePaletteNode && definitionIds.length) {
+      try {
+        const result = this.onRemovePaletteNode({
+          directoryId,
+          definitionIds,
+          skipConfirm: true,
+        });
+        const resolved = result instanceof Promise ? await result : result;
+        if (resolved === false || resolved?.cancelled || resolved?.success === false) {
+          return false;
+        }
+        if (Array.isArray(resolved?.removedIds)) {
+          removedDefinitionIds = new Set(resolved.removedIds.filter(Boolean));
+        }
+      } catch (error) {
+        console.error('Failed to remove palette directory', error);
+        return false;
+      }
+    }
+
+    const removed = this._removePaletteItem(directoryId);
+    if (!removed) {
+      return false;
+    }
+
+    if (removedDefinitionIds.size) {
+      const remaining = this.library.filter((definition) => !removedDefinitionIds.has(definition.id));
+      if (remaining.length !== this.library.length) {
+        this.setLibrary(remaining);
+      }
+    }
     return true;
   }
 
