@@ -1,222 +1,450 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Twitch Clips Monthly Browser</title>
-
-<style>
-:root { color-scheme: dark; }
-body {
-  margin:0; font-family:system-ui;
-  background:#0e0e10; color:#efeff1;
-}
-header {
-  position:sticky; top:0; z-index:10;
-  background:#111; border-bottom:1px solid #2a2a2d;
-}
-.wrap { max-width:1100px; margin:auto; padding:14px; }
-.row { display:grid; grid-template-columns:1fr 1fr 1fr auto auto; gap:10px; }
-input,select,button {
-  background:#18181b; color:#fff;
-  border:1px solid #2a2a2d; border-radius:8px;
-  padding:8px;
-}
-button { cursor:pointer; }
-button.primary { background:#9147ff; border-color:#9147ff; }
-
-main { max-width:1100px; margin:auto; padding:14px; }
-.grid {
-  display:grid; grid-template-columns:repeat(4,1fr); gap:12px;
-}
-@media(max-width:900px){ .grid{grid-template-columns:repeat(2,1fr);} }
-
-.card {
-  background:#18181b; border:1px solid #2a2a2d;
-  border-radius:12px; overflow:hidden;
-}
-.thumb { position:relative; aspect-ratio:16/9; cursor:pointer; }
-.thumb img { width:100%; height:100%; object-fit:cover; }
-.play {
-  position:absolute; inset:0;
-  display:flex; align-items:center; justify-content:center;
-  font-size:48px; background:rgba(0,0,0,.35);
-}
-.meta { padding:10px; font-size:12px; }
-.title { font-weight:700; margin-bottom:6px; }
-.sub { color:#adadb8; display:flex; flex-wrap:wrap; gap:6px; }
-iframe { width:100%; aspect-ratio:16/9; border:0; }
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Twitch Clips Browser (Monthly)</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0e0e10; color:#efeff1; }
+    header { position: sticky; top: 0; z-index: 10; background: rgba(14,14,16,.92); backdrop-filter: blur(10px); border-bottom: 1px solid #2a2a2d; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 14px 16px; }
+    h1 { font-size: 16px; margin: 0 0 10px; font-weight: 700; }
+    .row { display: grid; grid-template-columns: 1.2fr 1fr 1fr auto auto; gap: 10px; align-items: end; }
+    .row2 { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+    label { font-size: 12px; color: #adadb8; display: block; margin: 0 0 6px; }
+    input, select, button {
+      width: 100%; box-sizing: border-box;
+      border: 1px solid #2a2a2d; background:#18181b; color:#efeff1;
+      padding: 10px 10px; border-radius: 10px;
+    }
+    button { cursor: pointer; font-weight: 650; }
+    button.primary { background:#9147ff; border-color:#9147ff; }
+    button.secondary { background:#26262c; }
+    button:disabled { opacity:.55; cursor:not-allowed; }
+    .pill { padding: 6px 10px; border:1px solid #2a2a2d; border-radius: 999px; font-size: 12px; color:#adadb8; }
+    .status { margin-top: 10px; font-size: 12px; color:#adadb8; line-height: 1.5; }
+    .status b { color:#efeff1; }
+    main { max-width: 1100px; margin: 0 auto; padding: 14px 16px 40px; }
+    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    @media (max-width: 1050px) { .grid { grid-template-columns: repeat(3, 1fr); } .row { grid-template-columns: 1.2fr 1fr 1fr auto; } }
+    @media (max-width: 760px) { .grid { grid-template-columns: repeat(2, 1fr); } .row { grid-template-columns: 1fr; } }
+    .card { border:1px solid #2a2a2d; border-radius: 14px; overflow: hidden; background:#18181b; display:flex; flex-direction: column; min-height: 280px; }
+    .thumbWrap { position: relative; aspect-ratio: 16/9; background:#0b0b0d; }
+    .thumbWrap img { width: 100%; height: 100%; object-fit: cover; display:block; }
+    .badge { position:absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,.65); border:1px solid rgba(255,255,255,.12); padding: 4px 8px; border-radius: 999px; font-size: 12px; }
+    .meta { padding: 10px 10px 12px; display:flex; flex-direction: column; gap: 8px; }
+    .title { font-size: 13px; font-weight: 700; line-height: 1.35; display:-webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow:hidden; }
+    .sub { font-size: 12px; color:#adadb8; display:flex; flex-wrap: wrap; gap: 8px; }
+    .sub span { white-space: nowrap; }
+    .link { margin-top:auto; display:flex; gap: 8px; }
+    .link a { flex: 1; text-align:center; text-decoration:none; padding: 9px 10px; border-radius: 10px; border:1px solid #2a2a2d; color:#efeff1; background:#26262c; font-size: 12px; font-weight: 650; }
+    .link a.primary { background:#9147ff; border-color:#9147ff; }
+    .warn { color:#ffcf5c; }
+    .err { color:#ff6b6b; }
+    .ok { color:#75f0a2; }
+  </style>
 </head>
-
 <body>
 <header>
   <div class="wrap">
+    <h1>Twitch Clips Browser（指定月のクリップを一覧 / 無限スクロール）</h1>
     <div class="row">
-      <input id="clientId" placeholder="Client ID">
-      <input id="channel" placeholder="login or user_id">
-      <input id="month" type="month">
-      <select id="sort">
-        <option value="date">新しい順</option>
-        <option value="views">視聴数順</option>
-      </select>
-      <button id="connect" class="primary">Connect</button>
+      <div>
+        <label>Client ID（Twitch Dev Portalのアプリ）</label>
+        <input id="clientId" placeholder="例: abcd1234..." />
+      </div>
+      <div>
+        <label>チャンネル（login名 or user_id）</label>
+        <input id="channelInput" placeholder="例: shroud  または  12345678" />
+      </div>
+      <div>
+        <label>対象月（UTC）</label>
+        <input id="monthInput" type="month" />
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button id="btnConnect" class="primary">Connect（OAuth）</button>
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button id="btnLoad" class="secondary" disabled>Load</button>
+      </div>
+    </div>
+
+    <div class="row2">
+      <span class="pill">Token: <b id="tokenState">none</b></span>
+      <span class="pill">Resolved broadcaster_id: <b id="broadcasterState">-</b></span>
+      <span class="pill">Loaded: <b id="countState">0</b></span>
+      <button id="btnClear" class="secondary" style="width:auto;">Clear</button>
+      <button id="btnLogout" class="secondary" style="width:auto;">Logout（Token削除）</button>
+    </div>
+
+    <div class="status" id="status">
+      <div>注意: ブラウザから Helix API 直叩きは環境によって <b class="warn">CORSで失敗</b>する場合があります（その場合はプロキシが必要）。</div>
     </div>
   </div>
 </header>
 
 <main>
   <div class="grid" id="grid"></div>
+  <div class="status" id="footerStatus" style="margin-top:14px;"></div>
 </main>
 
 <script>
-const API = "https://api.twitch.tv/helix";
-const AUTH = "https://id.twitch.tv/oauth2/authorize";
-const LS_TOKEN = "twitch_token";
-const LS_CID   = "twitch_cid";
+(() => {
+  // -------------------------
+  // 設定
+  // -------------------------
+  const LS_CLIENT_ID = "twitch_clip_browser_client_id";
+  const LS_TOKEN     = "twitch_clip_browser_user_token";
+  const LS_TOKEN_TS  = "twitch_clip_browser_user_token_ts";
+  const API_BASE     = "https://api.twitch.tv/helix";
+  const AUTH_BASE    = "https://id.twitch.tv/oauth2/authorize";
+  const VALIDATE_URL = "https://id.twitch.tv/oauth2/validate";
 
-let state = {
-  token:null, cid:null, after:null,
-  broadcaster:null, clips:[], videos:{}, games:{},
-  loading:false
-};
+  // ここにプロキシURLを入れると、API呼び出しがプロキシ経由になります（CORS回避用）
+  // 例: const PROXY_BASE = "https://your-worker.example.com";
+  // プロキシは「/helix/...」をそのままTwitchへ中継する想定
+  const PROXY_BASE = "";
 
-const $ = id=>document.getElementById(id);
+  // implicit grant は scope なしでもよい（公開データ参照用途）
+  // 必要に応じて scopes を追加可能（スペース区切り）
+  const OAUTH_SCOPES = "";
 
-function auth() {
-  localStorage.setItem(LS_CID,$("clientId").value);
-  location.href = AUTH +
-   `?client_id=${$("clientId").value}` +
-   `&redirect_uri=${location.origin+location.pathname}` +
-   `&response_type=token`;
-}
+  // -------------------------
+  // DOM
+  // -------------------------
+  const $ = (id) => document.getElementById(id);
+  const elClientId = $("clientId");
+  const elChannel  = $("channelInput");
+  const elMonth    = $("monthInput");
+  const btnConnect = $("btnConnect");
+  const btnLoad    = $("btnLoad");
+  const btnClear   = $("btnClear");
+  const btnLogout  = $("btnLogout");
+  const elTokenSt  = $("tokenState");
+  const elBroadSt  = $("broadcasterState");
+  const elCountSt  = $("countState");
+  const elStatus   = $("status");
+  const elGrid     = $("grid");
+  const elFooter   = $("footerStatus");
 
-function consumeToken(){
-  if(!location.hash) return;
-  const p = new URLSearchParams(location.hash.slice(1));
-  const t = p.get("access_token");
-  if(t){
-    localStorage.setItem(LS_TOKEN,t);
-    history.replaceState(null,"",location.pathname);
+  // -------------------------
+  // 状態
+  // -------------------------
+  let state = {
+    token: null,
+    clientId: null,
+    broadcasterId: null,
+    startedAt: null,
+    endedAt: null,
+    after: null,
+    loading: false,
+    done: false,
+    total: 0,
+  };
+
+  // -------------------------
+  // ユーティリティ
+  // -------------------------
+  function setStatus(msg, kind="") {
+    const cls = kind ? ` class="${kind}"` : "";
+    elStatus.innerHTML = `<div${cls}>${msg}</div>`;
   }
-}
-
-async function helix(url){
-  const r = await fetch(API+url,{
-    headers:{
-      "Client-Id":state.cid,
-      "Authorization":"Bearer "+state.token
-    }
-  });
-  return r.json();
-}
-
-async function resolveUser(u){
-  if(/^\d+$/.test(u)) return u;
-  const j = await helix(`/users?login=${u}`);
-  return j.data[0].id;
-}
-
-function monthRange(m){
-  const [y,mo]=m.split("-");
-  const s=new Date(Date.UTC(y,mo-1,1)).toISOString();
-  const e=new Date(Date.UTC(y,mo,1)).toISOString();
-  return [s,e];
-}
-
-async function loadClips(){
-  if(state.loading) return;
-  state.loading=true;
-
-  const [s,e]=monthRange($("month").value);
-  const q = new URLSearchParams({
-    broadcaster_id:state.broadcaster,
-    started_at:s, ended_at:e, first:100
-  });
-  if(state.after) q.set("after",state.after);
-
-  const j = await helix(`/clips?${q}`);
-  state.after=j.pagination?.cursor||null;
-  state.clips.push(...j.data);
-
-  await enrichVideos(j.data);
-  render();
-  state.loading=false;
-}
-
-async function enrichVideos(clips){
-  const vids=[...new Set(clips.map(c=>c.video_id).filter(Boolean))];
-  for(const id of vids){
-    if(state.videos[id]) continue;
-    const v=await helix(`/videos?id=${id}`);
-    if(!v.data[0]) continue;
-    state.videos[id]=v.data[0];
-
-    const gid=v.data[0].game_id;
-    if(gid && !state.games[gid]){
-      const g=await helix(`/games?id=${gid}`);
-      if(g.data[0]) state.games[gid]=g.data[0].name;
-    }
+  function setFooter(msg, kind="") {
+    const cls = kind ? ` class="${kind}"` : "";
+    elFooter.innerHTML = `<div${cls}>${msg}</div>`;
   }
-}
+  function fmtUTC(iso) {
+    try {
+      const d = new Date(iso);
+      return d.toISOString().replace("T", " ").replace("Z", " UTC");
+    } catch { return iso; }
+  }
+  function isProbablyId(s) {
+    return /^[0-9]+$/.test((s || "").trim());
+  }
+  function apiUrl(pathWithQuery) {
+    if (PROXY_BASE) {
+      // プロキシは /helix/... を受ける想定
+      return PROXY_BASE.replace(/\/$/, "") + pathWithQuery;
+    }
+    return API_BASE + pathWithQuery;
+  }
+  async function helixFetch(pathWithQuery) {
+    const url = apiUrl(pathWithQuery);
+    const headers = {};
+    // Twitch Helixは Client-Id + Authorization が基本 :contentReference[oaicite:4]{index=4}
+    headers["Client-Id"] = state.clientId;
+    headers["Authorization"] = "Bearer " + state.token;
 
-function render(){
-  const sort=$("sort").value;
-  const arr=[...state.clips];
-  arr.sort((a,b)=>
-    sort==="views"
-      ? b.view_count-a.view_count
-      : new Date(b.created_at)-new Date(a.created_at)
-  );
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status} ${res.statusText} :: ${text}`);
+    }
+    return res.json();
+  }
 
-  $("grid").innerHTML=arr.map(c=>{
-    const v=state.videos[c.video_id];
-    const game=v?state.games[v.game_id]:"";
-    const thumb=c.thumbnail_url.replace("%{width}",480).replace("%{height}",270);
+  function monthRangeUTC(yyyyMm) {
+    // yyyy-mm -> [start, end) in RFC3339 / UTC
+    const [y, m] = yyyyMm.split("-").map(n => parseInt(n, 10));
+    const start = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0));
+    const end   = new Date(Date.UTC(y, m, 1, 0, 0, 0));
+    return [start.toISOString(), end.toISOString()];
+  }
+
+  function clipCard(c) {
+    const thumb = (c.thumbnail_url || "").replace("%{width}", "480").replace("%{height}", "272");
+    const url = c.url || "#";
+    const title = escapeHtml(c.title || "(no title)");
+    const creator = escapeHtml(c.creator_name || "");
+    const bcname = escapeHtml(c.broadcaster_name || "");
+    const views = (c.view_count ?? 0);
+    const dur = (c.duration ?? 0).toFixed(1) + "s";
+    const created = fmtUTC(c.created_at || "");
     return `
-<div class="card">
-  <div class="thumb" data-clip="${c.id}">
-    <img src="${thumb}">
-    <div class="play">▶</div>
-  </div>
-  <div class="meta">
-    <div class="title">${c.title}</div>
-    <div class="sub">
-      <span>${game||""}</span>
-      <span>${c.view_count} views</span>
-      <span>${new Date(c.created_at).toLocaleDateString()}</span>
-    </div>
-  </div>
-</div>`;
-  }).join("");
-}
+      <article class="card">
+        <div class="thumbWrap">
+          <img loading="lazy" src="${thumb}" alt="${title}">
+          <div class="badge">${views.toLocaleString()} views · ${dur}</div>
+        </div>
+        <div class="meta">
+          <div class="title" title="${title}">${title}</div>
+          <div class="sub">
+            <span>📺 ${bcname}</span>
+            <span>✂️ ${creator}</span>
+            <span>🕒 ${created}</span>
+          </div>
+          <div class="link">
+            <a class="primary" href="${url}" target="_blank" rel="noopener">Open Clip</a>
+            <a href="https://clips.twitch.tv/" target="_blank" rel="noopener">Twitch Clips</a>
+          </div>
+        </div>
+      </article>
+    `;
+  }
 
-$("grid").onclick=e=>{
-  const t=e.target.closest(".thumb");
-  if(!t) return;
-  const id=t.dataset.clip;
-  t.outerHTML=`
-<iframe
- src="https://clips.twitch.tv/embed?clip=${id}&parent=brahmoon.github.io"
- allowfullscreen>
-</iframe>`;
-};
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    }[c]));
+  }
 
-$("connect").onclick=auth;
+  function syncUI() {
+    elTokenSt.textContent = state.token ? "set" : "none";
+    elTokenSt.className = state.token ? "ok" : "warn";
+    elBroadSt.textContent = state.broadcasterId || "-";
+    elCountSt.textContent = String(state.total);
+    btnLoad.disabled = !(state.token && state.clientId);
+  }
 
-consumeToken();
-state.token=localStorage.getItem(LS_TOKEN);
-state.cid=localStorage.getItem(LS_CID);
+  function loadSaved() {
+    elClientId.value = localStorage.getItem(LS_CLIENT_ID) || "";
+    const token = localStorage.getItem(LS_TOKEN);
+    if (token) {
+      state.token = token;
+      state.clientId = elClientId.value.trim() || null;
+    }
+    // 初期 month は今月（UTCではなくローカルでOK、範囲はUTC計算）
+    const now = new Date();
+    const mm = String(now.getMonth()+1).padStart(2,"0");
+    elMonth.value = `${now.getFullYear()}-${mm}`;
+  }
 
-window.addEventListener("scroll",()=>{
-  if(innerHeight+scrollY>document.body.offsetHeight-600)
-    loadClips();
-});
+  // -------------------------
+  // OAuth (Implicit Grant)
+  // -------------------------
+  function buildAuthUrl() {
+    const clientId = elClientId.value.trim();
+    if (!clientId) throw new Error("Client ID を入力してください。");
+    const redirectUri = location.origin + location.pathname; // クエリ/フラグメント無し
+    const params = new URLSearchParams();
+    params.set("client_id", clientId);
+    params.set("redirect_uri", redirectUri);
+    params.set("response_type", "token"); // implicit :contentReference[oaicite:5]{index=5}
+    if (OAUTH_SCOPES) params.set("scope", OAUTH_SCOPES);
+    params.set("state", Math.random().toString(36).slice(2));
+    return AUTH_BASE + "?" + params.toString();
+  }
 
-(async()=>{
-  if(!state.token) return;
-  state.broadcaster=await resolveUser($("channel").value);
-  await loadClips();
+  function consumeHashToken() {
+    // #access_token=...&...
+    if (!location.hash || location.hash.length < 2) return false;
+    const hash = new URLSearchParams(location.hash.slice(1));
+    const token = hash.get("access_token");
+    if (!token) return false;
+
+    // 保存してURLを綺麗にする
+    localStorage.setItem(LS_TOKEN, token);
+    localStorage.setItem(LS_TOKEN_TS, String(Date.now()));
+    history.replaceState(null, "", location.origin + location.pathname + location.search);
+    return true;
+  }
+
+  async function validateToken() {
+    // validate endpoint (optional)
+    const res = await fetch(VALIDATE_URL, {
+      headers: { "Authorization": "OAuth " + state.token }
+    });
+    if (!res.ok) throw new Error("Token validate に失敗しました。Tokenが無効の可能性があります。");
+    const j = await res.json();
+    // ここで j.client_id と入力clientIdの一致などチェックしてもよい
+    return j;
+  }
+
+  // -------------------------
+  // Helix: broadcaster_id 解決
+  // -------------------------
+  async function resolveBroadcasterId(input) {
+    const s = (input || "").trim();
+    if (!s) throw new Error("チャンネル（login名 or user_id）を入力してください。");
+    if (isProbablyId(s)) return s;
+
+    // login -> /users?login=... でID取得
+    const data = await helixFetch(`/users?login=${encodeURIComponent(s)}`);
+    const u = data.data && data.data[0];
+    if (!u || !u.id) throw new Error("ユーザーが見つかりませんでした。login名を確認してください。");
+    return u.id;
+  }
+
+  // -------------------------
+  // Helix: clips をページング取得
+  // -------------------------
+  async function loadNextPage() {
+    if (state.loading || state.done) return;
+    state.loading = true;
+    syncUI();
+
+    try {
+      const qs = new URLSearchParams();
+      qs.set("broadcaster_id", state.broadcasterId);
+      qs.set("first", "100");
+      // 期間指定 started_at / ended_at :contentReference[oaicite:6]{index=6}
+      qs.set("started_at", state.startedAt);
+      qs.set("ended_at", state.endedAt);
+      if (state.after) qs.set("after", state.after);
+
+      setFooter(`Loading... after=${state.after || "(first)"}`);
+
+      const data = await helixFetch(`/clips?${qs.toString()}`);
+      const clips = data.data || [];
+      const cursor = data.pagination && data.pagination.cursor;
+
+      // 追加表示
+      let html = "";
+      for (const c of clips) html += clipCard(c);
+      elGrid.insertAdjacentHTML("beforeend", html);
+
+      state.total += clips.length;
+      state.after = cursor || null;
+
+      // 終端判定
+      if (!cursor || clips.length === 0) {
+        state.done = true;
+        setFooter(`Done. Total=${state.total}`, "ok");
+      } else {
+        setFooter(`Ready. Total=${state.total} (scroll to load more)`, "");
+      }
+    } catch (e) {
+      // CORS の場合、ここで TypeError: Failed to fetch になることが多い
+      setFooter(`Error: ${escapeHtml(e.message)}<br><span class="warn">※ CORSで失敗する場合は PROXY_BASE を設定してプロキシ経由にしてください。</span>`, "err");
+      state.done = true;
+    } finally {
+      state.loading = false;
+      syncUI();
+    }
+  }
+
+  function resetList() {
+    state.broadcasterId = null;
+    state.startedAt = null;
+    state.endedAt = null;
+    state.after = null;
+    state.loading = false;
+    state.done = false;
+    state.total = 0;
+    elGrid.innerHTML = "";
+    syncUI();
+  }
+
+  // -------------------------
+  // イベント
+  // -------------------------
+  btnConnect.addEventListener("click", () => {
+    try {
+      const cid = elClientId.value.trim();
+      if (!cid) { setStatus("Client ID を入力してください。", "warn"); return; }
+      localStorage.setItem(LS_CLIENT_ID, cid);
+      const url = buildAuthUrl();
+      location.href = url;
+    } catch (e) {
+      setStatus(escapeHtml(e.message), "err");
+    }
+  });
+
+  btnLoad.addEventListener("click", async () => {
+    resetList();
+    try {
+      state.clientId = elClientId.value.trim() || null;
+      if (!state.clientId) throw new Error("Client ID が必要です。");
+      localStorage.setItem(LS_CLIENT_ID, state.clientId);
+
+      if (!state.token) throw new Error("先に Connect（OAuth）してください。");
+      setStatus("Token validate中...", "");
+      await validateToken();
+
+      const month = elMonth.value;
+      if (!month) throw new Error("対象月を選択してください。");
+      const [startIso, endIso] = monthRangeUTC(month);
+      state.startedAt = startIso;
+      state.endedAt = endIso;
+
+      setStatus(`broadcaster_id 解決中...（期間: <b>${fmtUTC(startIso)}</b> ～ <b>${fmtUTC(endIso)}</b>）`, "");
+      state.broadcasterId = await resolveBroadcasterId(elChannel.value);
+      syncUI();
+
+      setStatus(`OK. broadcaster_id=<b>${state.broadcasterId}</b> / ${month} のクリップを取得します。`, "ok");
+      await loadNextPage();
+    } catch (e) {
+      setStatus(escapeHtml(e.message), "err");
+    }
+  });
+
+  btnClear.addEventListener("click", () => {
+    resetList();
+    setFooter("");
+    setStatus("Cleared.", "");
+  });
+
+  btnLogout.addEventListener("click", () => {
+    localStorage.removeItem(LS_TOKEN);
+    localStorage.removeItem(LS_TOKEN_TS);
+    state.token = null;
+    resetList();
+    setStatus("Token removed. 再度 Connect（OAuth）してください。", "warn");
+  });
+
+  // 無限スクロール
+  window.addEventListener("scroll", () => {
+    const nearBottom = (window.innerHeight + window.scrollY) >= (document.body.offsetHeight - 800);
+    if (nearBottom) loadNextPage();
+  });
+
+  // -------------------------
+  // 初期化
+  // -------------------------
+  loadSaved();
+
+  // OAuth リダイレクト後の #access_token を回収
+  if (consumeHashToken()) {
+    setStatus("OAuth token acquired. Load を押してください。", "ok");
+  }
+
+  state.clientId = elClientId.value.trim() || null;
+  state.token = localStorage.getItem(LS_TOKEN) || null;
+  syncUI();
 })();
 </script>
 </body>
